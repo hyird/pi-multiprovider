@@ -10,8 +10,10 @@ import type { Choice } from "../src/selector.ts";
 vi.mock("../src/selector.ts", async original => ({
   ...await original<typeof import("../src/selector.ts")>(),
   selectMenu: async (ctx: ExtensionCommandContext, title: string, choices: Choice[] | string[]) => {
-    const items = choices.map(c => typeof c === "string" ? { id: c, label: c } : c);
-    const selected = await ctx.ui.select(title, items.map(c => c.label));
+    const items: Choice[] = choices.map(c => typeof c === "string" ? { id: c, label: c } : c);
+    const selected = await ctx.ui.select(title, items.flatMap(c => c.editId ? [c.label, `Ctrl+E ${c.label}`] : [c.label]));
+    const edited = items.find(c => selected === `Ctrl+E ${c.label}`);
+    if (edited) return edited.editId;
     return items.find(c => c.label === selected)?.id;
   },
 }));
@@ -92,16 +94,17 @@ it("edits a label without switching or changing Pi credentials", async () => {
   await store.ensureCurrent("test");
   await store.add("test", "spare", { type: "api_key", key: "spare-key" });
   const before = await readFile(join(dir, "auth.json"), "utf8");
-  const { ctx, pi, ui } = context(["Test Provider", "Edit label", "spare"], ["personal"]);
+  const { ctx, pi, ui } = context(["Test Provider", "Ctrl+E spare"], ["personal"]);
   await runAccountCommand(pi, ctx, store, "switch");
   expect(await new AccountStore(dir).list("test")).toEqual([{ name: "default", active: true }, { name: "personal", active: false }]);
   expect(await readFile(join(dir, "auth.json"), "utf8")).toBe(before);
   expect(ctx.modelRegistry.refresh).not.toHaveBeenCalled();
+  expect(ui.select).toHaveBeenCalledTimes(2);
   expect(ui.notify).toHaveBeenCalledWith("Label updated: personal.", "info");
 });
 
 it("cancelling label input leaves the label unchanged", async () => {
-  const { ctx, pi } = context(["Test Provider", "Edit label", "default"], [undefined]);
+  const { ctx, pi } = context(["Test Provider", "Ctrl+E default"], [undefined]);
   await runAccountCommand(pi, ctx, store, "switch");
   expect(await store.list("test")).toEqual([{ name: "default", active: true }]);
 });

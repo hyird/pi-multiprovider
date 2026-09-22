@@ -70,10 +70,11 @@ export async function runAccountCommand(pi: ExtensionAPI, ctx: Context, store: A
     id: `account:${a.name}`, label: a.name, value: a.active ? "Active" : "Saved",
     description: command === "switch" ? "Switch permanently, then close this menu." : "Remove this saved login from Pi.",
     danger: command === "logout",
-  })), ...(command === "switch" ? [{ id: "action:edit-label", label: "Edit label", value: "Rename", description: "Rename a saved account without switching it." }] : [])]) : `account:${explicitLabel}`;
-  if (selection === "action:edit-label") {
-    const selected = await selectMenu(ctx, `Edit label  /  ${displayName}`, accounts.map(a => ({ id: a.name, label: a.name, value: a.active ? "Active" : "Saved" })));
-    if (!selected) return;
+    editId: command === "switch" ? `label:${a.name}` : undefined,
+  }))]) : `account:${explicitLabel}`;
+  if (command === "switch" && selection?.startsWith("label:")) {
+    const selected = selection.slice("label:".length);
+    if (!accounts.some(a => a.name === selected)) throw new AccountError("Account not found.");
     const label = (await ctx.ui.input("Edit label", selected))?.trim();
     if (!label) return;
     if (!ctx.isIdle()) throw new AccountError("A request is running. Try again when it finishes.");

@@ -1,7 +1,7 @@
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Input, getKeybindings, matchesKey, truncateToWidth, visibleWidth, fuzzyFilter, type TuiMouseEvent } from "@earendil-works/pi-tui";
 
-export type Choice = { id: string; label: string; value?: string; description?: string; danger?: boolean };
+export type Choice = { id: string; label: string; value?: string; description?: string; danger?: boolean; editId?: string };
 
 /** Bounded viewport: the selected row is always visible, including after resize. */
 export class AccountSelector {
@@ -37,13 +37,17 @@ export class AccountSelector {
       ...header,
       ...(rows.length ? rows : [this.theme.fg("dim", "No matches")]),
       ...(!compact ? ["", this.theme.fg("dim", truncateToWidth(` ${this.filtered[this.selected]?.description ?? "Select an item to continue."}`, width))] : []),
-      this.theme.fg("dim", truncateToWidth(`${this.filtered.length ? this.selected + 1 : 0}/${this.filtered.length} · ↑↓ move · PgUp/PgDn page · Enter select · Esc back`, width)),
+      this.theme.fg("dim", truncateToWidth(`${this.filtered[this.selected]?.editId ? "Ctrl+E rename · " : ""}Enter select · Esc back · ${this.filtered.length ? this.selected + 1 : 0}/${this.filtered.length} · ↑↓ · PgUp/PgDn`, width)),
       ...(!compact ? [border] : []),
     ];
   }
   handleInput(data: string) {
     const kb = getKeybindings();
     if (kb.matches(data, "tui.select.cancel")) return this.done(undefined);
+    if (matchesKey(data, "ctrl+e") && this.filtered[this.selected]?.editId) {
+      this.done(this.filtered[this.selected]!.editId);
+      return;
+    }
     if (kb.matches(data, "tui.select.confirm")) {
       const selected = this.filtered[this.selected];
       if (selected) this.done(selected.id);

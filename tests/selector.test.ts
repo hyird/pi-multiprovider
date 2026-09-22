@@ -35,3 +35,14 @@ it("retains distinct provider IDs even when Pi display names match", () => {
   const ctx = { modelRegistry: { getProviderDisplayName: () => "Same name" } } as unknown as ExtensionCommandContext;
   expect(providerChoices(ctx, ["a", "b"])).toEqual([{ id: "a", label: "Same name" }, { id: "b", label: "Same name" }]);
 });
+
+it("Ctrl+E edits the highlighted account while Enter still switches", () => {
+  const done = vi.fn();
+  const selector = new AccountSelector("Accounts", [{ id: "account:work", label: "work", editId: "label:work" }, { id: "account:personal", label: "personal", editId: "label:personal" }], { fg: (_c, text) => text }, () => 20, done);
+  selector.handleInput("\u001b[B");
+  expect(selector.render(80).join("\n")).toContain("Ctrl+E rename");
+  selector.handleInput("\u0005");
+  expect(done).toHaveBeenLastCalledWith("label:personal");
+  selector.handleInput("\r");
+  expect(done).toHaveBeenLastCalledWith("account:personal");
+});
