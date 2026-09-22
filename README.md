@@ -18,6 +18,8 @@ Run `/reload` once after installing or updating. Switching accounts never requir
 | `/multilogout` | Native Pi logout provider picker → saved account → confirm sign-out |
 | `/switch-account` | Provider → saved account/API key → switch, notify, close |
 
+To change a label, run `/switch-account`, choose a provider, then choose **Edit label** at the bottom. Select an account, enter the new label, and press Enter. This updates only the saved label; it does not switch accounts or modify Pi's current credentials. Esc cancels. Labels must be unique within a provider.
+
 Login reuses Pi's `OAuthSelectorComponent` and `LoginDialogComponent`, including browser launch, device codes, manual callback input, and provider-specific login prompts. There is no separate login settings screen. Selecting a saved slot signs in again to that slot. New slots receive `default`, `default-2`, and so on.
 
 You can specify a provider ID and a label directly:

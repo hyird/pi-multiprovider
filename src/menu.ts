@@ -66,11 +66,23 @@ export async function runAccountCommand(pi: ExtensionAPI, ctx: Context, store: A
   }
   await store.ensureCurrent(provider);
   const accounts = await store.list(provider);
-  const name = explicitLabel ?? await selectMenu(ctx, `${title}  /  ${displayName}`, accounts.map(a => ({
-    id: a.name, label: a.name, value: a.active ? "Active" : "Saved",
+  const selection = explicitLabel === undefined ? await selectMenu(ctx, `${title}  /  ${displayName}`, [...accounts.map(a => ({
+    id: `account:${a.name}`, label: a.name, value: a.active ? "Active" : "Saved",
     description: command === "switch" ? "Switch permanently, then close this menu." : "Remove this saved login from Pi.",
     danger: command === "logout",
-  })));
+  })), ...(command === "switch" ? [{ id: "action:edit-label", label: "Edit label", value: "Rename", description: "Rename a saved account without switching it." }] : [])]) : `account:${explicitLabel}`;
+  if (selection === "action:edit-label") {
+    const selected = await selectMenu(ctx, `Edit label  /  ${displayName}`, accounts.map(a => ({ id: a.name, label: a.name, value: a.active ? "Active" : "Saved" })));
+    if (!selected) return;
+    const label = (await ctx.ui.input("Edit label", selected))?.trim();
+    if (!label) return;
+    if (!ctx.isIdle()) throw new AccountError("A request is running. Try again when it finishes.");
+    await store.rename(provider, selected, label);
+    if (accounts.find(a => a.name === selected)?.active) pi.events.emit("pi-accounts:changed", { provider, name: label });
+    ctx.ui.notify(`Label updated: ${label}.`, "info");
+    return;
+  }
+  const name = selection?.slice("account:".length);
   if (!name) return;
   if (!accounts.some(a => a.name === name)) throw new AccountError("Account not found.");
   if (!ctx.isIdle()) throw new AccountError("A request is running. Try again when it finishes.");

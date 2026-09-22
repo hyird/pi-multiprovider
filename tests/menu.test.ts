@@ -87,3 +87,21 @@ it("cancelled logout keeps the current login", async () => {
   await runAccountCommand(pi, ctx, store, "logout");
   expect(JSON.parse(await readFile(join(dir, "auth.json"), "utf8")).test.key).toBe("old-fixture");
 });
+
+it("edits a label without switching or changing Pi credentials", async () => {
+  await store.ensureCurrent("test");
+  await store.add("test", "spare", { type: "api_key", key: "spare-key" });
+  const before = await readFile(join(dir, "auth.json"), "utf8");
+  const { ctx, pi, ui } = context(["Test Provider", "Edit label", "spare"], ["personal"]);
+  await runAccountCommand(pi, ctx, store, "switch");
+  expect(await new AccountStore(dir).list("test")).toEqual([{ name: "default", active: true }, { name: "personal", active: false }]);
+  expect(await readFile(join(dir, "auth.json"), "utf8")).toBe(before);
+  expect(ctx.modelRegistry.refresh).not.toHaveBeenCalled();
+  expect(ui.notify).toHaveBeenCalledWith("Label updated: personal.", "info");
+});
+
+it("cancelling label input leaves the label unchanged", async () => {
+  const { ctx, pi } = context(["Test Provider", "Edit label", "default"], [undefined]);
+  await runAccountCommand(pi, ctx, store, "switch");
+  expect(await store.list("test")).toEqual([{ name: "default", active: true }]);
+});
