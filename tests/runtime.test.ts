@@ -21,11 +21,13 @@ it("switches authentication in the existing Pi runtime without reload", async ()
     expect(await registry.getApiKeyForProvider("openai")).toBe("fixture-personal");
     let handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> = async () => { throw new Error("No command"); };
     const emit = vi.fn();
-    const registerCommand: ExtensionAPI["registerCommand"] = (_name, options) => { handler = options.handler; };
+    const names: string[] = [];
+    const registerCommand: ExtensionAPI["registerCommand"] = (name, options) => { names.push(name); if (name === "switch-account") handler = options.handler; };
     extension({ registerCommand, events: { emit } } as unknown as ExtensionAPI);
     const reload = vi.fn();
     const notify = vi.fn();
-    await handler("use openai work", { isIdle: () => true, hasUI: true, modelRegistry: registry, reload, ui: { notify } } as unknown as ExtensionCommandContext);
+    expect(names).toEqual(["multilogin", "multilogout", "switch-account"]);
+    await handler("openai work", { isIdle: () => true, hasUI: true, modelRegistry: registry, reload, ui: { notify } } as unknown as ExtensionCommandContext);
     expect(await registry.getApiKeyForProvider("openai")).toBe("fixture-work");
     expect(reload).not.toHaveBeenCalled();
     expect(emit).toHaveBeenCalledWith("pi-accounts:changed", { provider: "openai", name: "work" });

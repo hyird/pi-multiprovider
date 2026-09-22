@@ -1,7 +1,7 @@
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
-import { Input, getKeybindings, matchesKey, truncateToWidth, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { Input, getKeybindings, matchesKey, truncateToWidth, visibleWidth, fuzzyFilter, type TuiMouseEvent } from "@earendil-works/pi-tui";
 
-export type Choice = { id: string; label: string };
+export type Choice = { id: string; label: string; value?: string; description?: string; danger?: boolean };
 
 /** Bounded viewport: the selected row is always visible, including after resize. */
 export class AccountSelector {
@@ -10,25 +10,35 @@ export class AccountSelector {
   private selected = 0;
   private start = 0;
   private visible = 8;
+  private rowOffset = 2;
   focused = true;
   constructor(private title: string, private choices: Choice[], private theme: Pick<Theme, "fg">, private height: () => number, private done: (id: string | undefined) => void) {
     this.filtered = choices;
   }
   invalidate() { this.input.invalidate(); }
   render(width: number): string[] {
-    this.visible = Math.max(1, Math.min(10, this.height() - 6));
+    const compact = this.height() < 16;
+    this.visible = Math.max(1, Math.min(10, this.height() - (compact ? 6 : 11)));
     this.start = Math.max(0, Math.min(this.selected - Math.floor(this.visible / 2), this.filtered.length - this.visible));
     this.input.focused = this.focused;
     const rows = this.filtered.slice(this.start, this.start + this.visible).map((item, i) => {
       const selected = this.start + i === this.selected;
-      const text = truncateToWidth(`${selected ? "→ " : "  "}${item.label}`, width);
-      return this.theme.fg(selected ? "accent" : "text", text);
+      const labelWidth = Math.min(38, Math.max(12, Math.floor(width * 0.5)));
+      const label = truncateToWidth(item.label, item.value ? labelWidth : width - 5);
+      const text = `${selected ? "→ " : "  "}${label}`;
+      const value = item.value ? " ".repeat(Math.max(2, labelWidth - visibleWidth(label) + 2)) + this.theme.fg("muted", item.value) : "";
+      return truncateToWidth(" " + this.theme.fg(selected ? "accent" : item.danger ? "error" : "text", text) + value, width);
     });
+    const border = this.theme.fg("border", "─".repeat(Math.max(1, width)));
+    const heading = this.theme.fg("accent", truncateToWidth(` ${this.title.replace(/\n/g, " · ")}`, width));
+    const header = compact ? [heading, ...this.input.render(width)] : [border, heading, this.theme.fg("muted", " Manage your accounts and API keys"), "", ...this.input.render(width), ""];
+    this.rowOffset = header.length;
     return [
-      this.theme.fg("accent", truncateToWidth(this.title.replace(/\n/g, " · "), width)),
-      ...this.input.render(width),
+      ...header,
       ...(rows.length ? rows : [this.theme.fg("dim", "No matches")]),
+      ...(!compact ? ["", this.theme.fg("dim", truncateToWidth(` ${this.filtered[this.selected]?.description ?? "Select an item to continue."}`, width))] : []),
       this.theme.fg("dim", truncateToWidth(`${this.filtered.length ? this.selected + 1 : 0}/${this.filtered.length} · ↑↓ move · PgUp/PgDn page · Enter select · Esc back`, width)),
+      ...(!compact ? [border] : []),
     ];
   }
   handleInput(data: string) {
@@ -49,8 +59,8 @@ export class AccountSelector {
       const previous = this.input.getValue();
       this.input.handleInput(data);
       if (previous !== this.input.getValue()) {
-        const terms = this.input.getValue().toLowerCase().trim().split(/\s+/);
-        this.filtered = this.choices.filter(item => terms.every(term => `${item.label} ${item.id}`.toLowerCase().includes(term)));
+        const query = this.input.getValue().trim();
+        this.filtered = query ? fuzzyFilter(this.choices, query, item => `${item.label} ${item.id} ${item.value ?? ""}`) : this.choices;
         this.selected = 0;
       }
     }
@@ -62,7 +72,7 @@ export class AccountSelector {
       return { handled: true, render: true };
     }
     if (event.button === "left" && (event.type === "press" || event.type === "click")) {
-      const row = event.y - 2;
+      const row = event.y - this.rowOffset;
       const index = this.start + row;
       if (row >= 0 && row < this.visible && index < this.filtered.length) {
         this.selected = index;

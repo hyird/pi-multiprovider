@@ -6,7 +6,7 @@ it("keeps a 100-row list bounded while paging, searching and resizing", () => {
   let height = 24;
   const done = vi.fn();
   const selector = new AccountSelector("Providers", Array.from({ length: 100 }, (_, i) => ({ id: `id-${i}`, label: `Provider ${i}` })), { fg: (_c, text) => text }, () => height, done);
-  expect(selector.render(80).length).toBeLessThanOrEqual(13);
+  expect(selector.render(80).length).toBeLessThan(height);
   selector.handleInput("\u001b[F");
   expect(selector.render(80).join("\n")).toContain("→ Provider 99");
   height = 10;

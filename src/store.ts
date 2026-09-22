@@ -111,6 +111,18 @@ export class AccountStore {
       await saveAuth();
     });
   }
+  async logout(provider: string, name: string): Promise<void> {
+    await this.transaction(async (auth, pool, savePool, saveAuth) => {
+      const account = pool.accounts.find(a => a.provider === provider && a.name === name);
+      if (!account) throw new AccountError("Account not found.");
+      const current = auth[provider];
+      const active = credential(current) && sameAccount(account.credential, current);
+      // Remove aliases of the same login as well, so signing out cannot leave a duplicate behind.
+      pool.accounts = pool.accounts.filter(a => a.provider !== provider || !sameAccount(a.credential, account.credential));
+      await savePool();
+      if (active) { delete auth[provider]; await saveAuth(); }
+    });
+  }
   async add(provider: string, name: string, value: unknown): Promise<void> {
     validateLabel(name);
     if (!credential(value)) throw new AccountError("Login returned an unsupported credential format. Nothing was saved.");
@@ -118,6 +130,26 @@ export class AccountStore {
       if (pool.accounts.some(a => a.provider === provider && a.name === name)) throw new AccountError("This label already exists. Choose a different label.");
       pool.accounts.push({ provider, name, credential: value });
       await savePool();
+    });
+  }
+  async saveLogin(provider: string, name: string, value: unknown): Promise<void> {
+    validateLabel(name);
+    if (!credential(value)) throw new AccountError("Login returned an unsupported credential format.");
+    await this.transaction(async (auth, pool, savePool, saveAuth) => {
+      const current = auth[provider];
+      if (credential(current)) {
+        const matches = pool.accounts.filter(a => a.provider === provider && sameAccount(a.credential, current));
+        for (const account of matches) account.credential = current;
+        if (!matches.length || matches.every(a => a.name === name) && !sameAccount(current, value)) {
+          pool.accounts.push({ provider, name: `backup-${randomUUID()}`, credential: current });
+        }
+      }
+      const existing = pool.accounts.find(a => a.provider === provider && a.name === name);
+      if (existing) existing.credential = value;
+      else pool.accounts.push({ provider, name, credential: value });
+      await savePool();
+      Object.defineProperty(auth, provider, { value, enumerable: true, configurable: true, writable: true });
+      await saveAuth();
     });
   }
   async rename(provider: string, name: string, label: string): Promise<void> {

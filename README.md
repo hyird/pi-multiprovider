@@ -1,8 +1,6 @@
 # pi-multiprovider
 
-Persistent multi-account switching for Pi 0.87.0. Manage provider accounts, sign in, and edit labels from `/accounts`. All interface text is in English.
-
-Switching writes the selected credentials to Pi's global `auth.json` and refreshes the current runtime. The next request uses that account, and the selection survives restarts and new sessions. Switching does not reload extensions or replace your conversation.
+Persistent multi-account switching for Pi 0.87.0. Native Pi login and logout provider pickers, an extra account-selection step, and permanent switching. All interface text is in English.
 
 ## Install
 
@@ -10,55 +8,55 @@ Switching writes the selected credentials to Pi's global `auth.json` and refresh
 pi install git:github.com/hyird/pi-multiprovider
 ```
 
-Run `/reload` once to load a newly installed or updated extension. Account switches do not require `/reload`.
+Run `/reload` once after installing or updating. Switching accounts never requires a reload.
 
-## Account manager
+## Commands
 
-Run `/accounts`. The first screen lists providers with saved accounts or existing Pi credentials, using Pi's own display names. **Add provider** and **Remove provider** appear at the bottom, in that order.
+| Command | Interaction |
+| --- | --- |
+| `/multilogin` | Native Pi provider/authentication picker → account slot or Add account → native Pi login dialog |
+| `/multilogout` | Native Pi logout provider picker → saved account → confirm sign-out |
+| `/switch-account` | Provider → saved account/API key → switch, notify, close |
 
-```text
-Accounts · Providers
-  OpenAI
-  xAI
-  Add provider
-  Remove provider
+Login reuses Pi's `OAuthSelectorComponent` and `LoginDialogComponent`, including browser launch, device codes, manual callback input, and provider-specific login prompts. There is no separate login settings screen. Selecting a saved slot signs in again to that slot. New slots receive `default`, `default-2`, and so on.
 
-OpenAI
-  Label    default
-  Switch   default
-  Back
-```
-
-- **Label** displays the current account label. Press Enter to edit it directly. Existing unnamed Pi credentials are saved as `default` (or a numbered variant if that label already exists).
-- **Switch** displays the current account label. Press Enter to choose a saved account or API key; the selection takes effect permanently.
-- **Add provider** is the only interactive entry point for adding credentials. Choose a provider, enter a label, then complete its native OAuth or API-key login. Existing providers are also available here to add another account. Failed or cancelled login leaves current credentials unchanged.
-- **Remove provider** asks which provider to remove, then confirms removal of all its saved accounts and its current Pi login. It does not remove the provider's model definitions or environment variables.
-- Provider screens contain only **Label**, **Switch**, and **Back**.
-- Lists show at most ten rows, shrink with the terminal, and keep the selected item visible. Type to search by name or provider ID; use arrows, Page Up/Down, Home/End, or the mouse wheel to navigate.
-- Esc returns to the previous screen; Esc on the provider list closes the manager.
-
-The provider/account drill-down and native provider login flow are inspired by [pi-multiprovider](https://github.com/monotykamary/pi-multiprovider). Account selection here remains persistent until you explicitly change it. There is no automatic rotation or failover.
-
-## Optional commands
+You can specify a provider ID and a label directly:
 
 ```text
-/accounts list openai-codex
-/accounts save openai-codex work
-/accounts use openai-codex work
-/accounts remove openai-codex personal
+/multilogin openai-codex work
+/multilogout openai-codex work
+/switch-account openai-codex work
 ```
 
-Switching accounts does not change the selected model or provider. Use `/model` to choose a model from another provider. Account operations are blocked while the current agent is busy.
+Successful login saves and activates the selected account. Cancelling authentication leaves current credentials unchanged. Logout removes the selected saved login (including aliases with identical credentials); if it is active, it also clears that provider's current Pi login. Other saved accounts remain available.
+
+Switching writes the selected credentials to the global `auth.json`, refreshes Pi's existing runtime, displays a confirmation, and closes the menu. The choice persists across new sessions and restarts until you explicitly change it. No automatic rotation or failover is performed. Account switching does not change your model; choose another provider's model using `/model`.
+
+## Interface
+
+Provider names come directly from Pi. The login/logout provider pickers and login dialog are native Pi components. Account and switch pickers use theme colors, borders, aligned status columns, contextual descriptions, and fuzzy search. Long lists have a bounded viewport with arrows, Page Up/Down, Home/End, and mouse-wheel navigation. Small terminals use a compact layout.
+
+The interaction is inspired by [pi-multiprovider](https://pi.dev/packages/pi-multiprovider). This extension focuses on persistent manual selection.
+
+## Native commands
+
+Pi 0.87 does not allow extensions to replace or hide its built-in `/login` and `/logout` commands. They remain available:
+
+- Native `/login` replaces Pi's current credential. It does not immediately register that login in this extension. On the next account operation, the current stored login is preserved under a default label if it has not already been saved. Previously unsaved credentials cannot be recovered after native login overwrites them.
+- Native `/logout` clears the current Pi login but leaves this extension's saved accounts intact. A saved account can be selected again using `/switch-account`.
+- `/multilogout` removes the selected saved login and clears the current Pi credential if it matches.
+
+The old `/accounts` command is no longer registered.
 
 ## Storage
 
-The default files are `~/.pi/agent/auth.json` for active credentials and `~/.pi/agent/accounts.json` for saved accounts. Both respect `PI_CODING_AGENT_DIR`. These files contain credentials; do not share or commit them.
+Default files: `~/.pi/agent/auth.json` (current Pi credentials) and `~/.pi/agent/accounts.json` (saved accounts). Both respect `PI_CODING_AGENT_DIR`. These files contain secrets; do not share or commit them.
 
-The extension uses Pi's auth-file lock and atomic file replacement. Before switching, it saves current credentials, including refreshed OAuth tokens when their identity can be matched. Unsaved accounts are preserved as `backup-...`. Opaque credentials with no recognizable stable identity are backed up separately. Credentials that cannot be refreshed require another login.
+The extension uses Pi's auth-file lock and atomic replacement. Before switching it preserves current credentials, including refreshed OAuth tokens when their identity is recognizable. Opaque tokens without stable identity are conservatively backed up separately. Expired credentials that cannot refresh require login again.
 
-Only stored credentials are managed. Environment-only authentication, runtime overrides, and other extensions' independent account pools are outside this plugin's control. Command-based API keys retain their original configuration. Requests already running in another Pi process are not interrupted.
+Environment-only authentication, CLI runtime overrides, and independent account pools from other extensions are outside this plugin's control. In-flight requests in another process are not interrupted. Account operations are blocked while the current agent is busy.
 
-The `pi-accounts:changed` event carries `{ provider, name }` after activation or an active label change, allowing other extensions to invalidate account-specific caches.
+The `pi-accounts:changed` event allows other extensions to invalidate cached account data.
 
 ## Development
 
@@ -69,6 +67,4 @@ bun install --frozen-lockfile
 bun run check
 ```
 
-Install a local checkout with `pi install /absolute/path/to/pi-multiprovider`.
-
-Tests use temporary directories and synthetic credentials, including a real Pi runtime authentication check. They do not sign in to real accounts or call provider services.
+Install a local checkout with `pi install /absolute/path/to/pi-multiprovider`. Tests use temporary directories and synthetic credentials, including a real Pi runtime authentication check. They do not authenticate real accounts or call provider services.
