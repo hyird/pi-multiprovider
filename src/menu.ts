@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { AccountError, AccountStore, validateLabel } from "./store.ts";
+import { providerChoices, selectMenu } from "./selector.ts";
 
 type Context = ExtensionCommandContext;
 type Provider = NonNullable<ReturnType<Context["modelRegistry"]["getProvider"]>>;
@@ -12,7 +13,7 @@ export async function activate(pi: ExtensionAPI, ctx: Context, store: AccountSto
     const result = await ctx.modelRegistry.refresh({ providers: [provider], allowNetwork: false });
     if (result.errors.size || result.aborted) throw new Error("Refresh incomplete");
     pi.events.emit("pi-accounts:changed", { provider, name });
-    ctx.ui.notify(`Switched permanently to ${provider} / ${name}. Effective on the next request.`, "info");
+    ctx.ui.notify(`Switched permanently to ${ctx.modelRegistry.getProviderDisplayName(provider)} / ${name}. Effective on the next request.`, "info");
   } catch {
     ctx.ui.notify("Account selection was saved, but runtime refresh failed. Retry the switch before continuing.", "warning");
   }
@@ -94,55 +95,54 @@ async function addAccount(pi: ExtensionAPI, ctx: Context, store: AccountStore, p
 
 async function providerMenu(pi: ExtensionAPI, ctx: Context, store: AccountStore, provider: string) {
   while (true) {
+    await store.ensureCurrent(provider);
     const accounts = await store.list(provider);
-    const active = accounts.find(a => a.active)?.name ?? "Pi default (not saved)";
-    const rows = accounts.map(a => `${a.active ? "● " : "○ "}${a.name}`);
-    const action = await ctx.ui.select(`${provider}\nActive: ${active} · Select an account / API key to switch`, [...rows, "Add account / API key", "Edit label", "Save current login", "Remove account", "Back"]);
-    if (!action || action === "Back") return;
+    const active = accounts.find(a => a.active);
+    const action = await selectMenu(ctx, ctx.modelRegistry.getProviderDisplayName(provider), [
+      { id: "label", label: `Label    ${active?.name ?? "default"}` },
+      { id: "switch", label: `Switch   ${active?.name ?? "Not signed in"}` },
+      { id: "back", label: "Back" },
+    ]);
+    if (!action || action === "back") return;
     try {
       if (!ctx.isIdle()) throw new AccountError("A request is running. Try again when it finishes.");
-      if (action === "Add account / API key") await addAccount(pi, ctx, store, provider);
-      else if (action === "Edit label" || action === "Remove account") {
-        if (!accounts.length) { ctx.ui.notify("No saved accounts yet.", "info"); continue; }
-        const selected = await ctx.ui.select(action, rows);
-        const account = accounts[rows.indexOf(selected ?? "")];
-        if (!account) continue;
-        if (action === "Edit label") {
-          const label = (await ctx.ui.input(`Edit label: ${account.name}`, "Enter a new label"))?.trim();
-          if (!label) continue;
-          await store.rename(provider, account.name, label);
-          if (account.active) pi.events.emit("pi-accounts:changed", { provider, name: label });
-          ctx.ui.notify(`Label updated: ${label}`, "info");
-        } else if (await ctx.ui.confirm("Remove account", `Remove the saved credentials for ${account.name}?`)) {
-          await store.remove(provider, account.name);
-        }
-      }
-      else if (action === "Save current login") {
-        const label = (await ctx.ui.input("Account label", "e.g. work / personal"))?.trim();
+      if (action === "label") {
+        if (!active) throw new AccountError("Select an account before editing its label.");
+        const label = (await ctx.ui.input("Label", active.name))?.trim();
         if (!label) continue;
-        await store.save(provider, label);
-        ctx.ui.notify(`Saved account: ${label}`, "info");
+        await store.rename(provider, active.name, label);
+        pi.events.emit("pi-accounts:changed", { provider, name: label });
       } else {
-        const account = accounts[rows.indexOf(action)];
-        if (account) await activate(pi, ctx, store, provider, account.name);
+        if (!accounts.length) { ctx.ui.notify("No saved accounts yet. Use Add provider to sign in.", "info"); continue; }
+        const name = await selectMenu(ctx, "Switch account / API key", accounts.map(a => ({ id: a.name, label: `${a.active ? "● " : "○ "}${a.name}` })));
+        if (!name) continue;
+        await activate(pi, ctx, store, provider, name);
       }
     } catch (error) { reportError(ctx, error); }
   }
 }
-
 export async function accountMenu(pi: ExtensionAPI, ctx: Context, store: AccountStore, initialProvider?: string) {
   if (!ctx.hasUI) throw new AccountError("The account manager requires an interactive terminal. Use /accounts list <provider> instead.");
   if (initialProvider) await providerMenu(pi, ctx, store, initialProvider);
   while (true) {
     const providers = (await store.providers()).sort();
-    const selected = await ctx.ui.select("Accounts · Providers", [...providers, "Add provider"]);
+    const selected = await selectMenu(ctx, "Accounts · Providers", [...providerChoices(ctx, providers), { id: "add-provider", label: "Add provider" }, { id: "remove-provider", label: "Remove provider" }]);
     if (!selected) return;
     try {
-      if (selected === "Add provider") {
-        const available = [...new Set([...ctx.modelRegistry.getAll().map(m => m.provider), ...ctx.modelRegistry.getRegisteredProviderIds()])]
-          .filter(id => !providers.includes(id)).sort();
-        if (!available.length) { ctx.ui.notify("All available providers have already been added.", "info"); continue; }
-        const provider = await ctx.ui.select("Add provider", available);
+      if (!ctx.isIdle()) throw new AccountError("A request is running. Try again when it finishes.");
+      if (selected === "remove-provider") {
+        if (!providers.length) { ctx.ui.notify("No providers to remove.", "info"); continue; }
+        const provider = await selectMenu(ctx, "Remove provider", providerChoices(ctx, providers));
+        if (!provider) continue;
+        if (!await ctx.ui.confirm("Remove provider", `Remove all saved accounts and the current Pi login for ${ctx.modelRegistry.getProviderDisplayName(provider)}?`)) continue;
+        await store.removeProvider(provider);
+        const result = await ctx.modelRegistry.refresh({ providers: [provider], allowNetwork: false });
+        pi.events.emit("pi-accounts:changed", { provider });
+        ctx.ui.notify(result.errors.size || result.aborted ? "Provider removed, but runtime refresh failed. Reload Pi before continuing." : "Provider removed.", result.errors.size || result.aborted ? "warning" : "info");
+      } else if (selected === "add-provider") {
+        const available = [...new Set([...ctx.modelRegistry.getAll().map(m => m.provider), ...ctx.modelRegistry.getRegisteredProviderIds(), ...providers])];
+        if (!available.length) { ctx.ui.notify("No providers are available. Register a provider in Pi first.", "info"); continue; }
+        const provider = await selectMenu(ctx, "Add provider", providerChoices(ctx, available));
         if (!provider) continue;
         if (await addAccount(pi, ctx, store, provider)) await providerMenu(pi, ctx, store, provider);
       } else await providerMenu(pi, ctx, store, selected);

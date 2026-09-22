@@ -1,6 +1,7 @@
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { AccountError, AccountStore } from "./src/store.ts";
 import { accountMenu, activate } from "./src/menu.ts";
+import { selectMenu } from "./src/selector.ts";
 
 export default function accounts(pi: ExtensionAPI) {
   const store = new AccountStore(getAgentDir());
@@ -35,11 +36,11 @@ export default function accounts(pi: ExtensionAPI) {
           const saved = await store.list(provider);
           if (!saved.length) throw new AccountError(`No saved accounts. Run /login ${provider}, then /accounts save ${provider} <name>.`);
           if (action === "list" || (!ctx.hasUI && !name)) {
-            ctx.ui.notify(`${provider}\n${saved.map(a => `${a.active ? "●" : "○"} ${a.name}`).join("\n")}`, "info");
+            ctx.ui.notify(`${ctx.modelRegistry.getProviderDisplayName(provider)}\n${saved.map(a => `${a.active ? "●" : "○"} ${a.name}`).join("\n")}`, "info");
             return;
           }
           const choices = saved.map(a => `${a.active ? "● " : "○ "}${a.name}`);
-          const chosen = name ? undefined : await ctx.ui.select(`Switch ${provider} account (persistent)`, choices);
+          const chosen = name ? undefined : await selectMenu(ctx, `Switch ${ctx.modelRegistry.getProviderDisplayName(provider)} account (persistent)`, choices);
           const target = name || saved[choices.indexOf(chosen ?? "")]?.name;
           if (!target) return;
           await activate(pi, ctx, store, provider, target);

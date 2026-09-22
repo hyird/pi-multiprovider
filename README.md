@@ -14,31 +14,27 @@ Run `/reload` once to load a newly installed or updated extension. Account switc
 
 ## Account manager
 
-Run `/accounts`. The first screen lists only providers with saved accounts or existing Pi credentials. **Add provider** is always the last row.
+Run `/accounts`. The first screen lists providers with saved accounts or existing Pi credentials, using Pi's own display names. **Add provider** and **Remove provider** appear at the bottom, in that order.
 
 ```text
 Accounts · Providers
-  openai-codex
-  xai
+  OpenAI
+  xAI
   Add provider
+  Remove provider
 
-openai-codex
-Active: work
-  ● work
-  ○ personal
-  Add account / API key
-  Edit label
-  Save current login
-  Remove account
+OpenAI
+  Label    default
+  Switch   default
   Back
 ```
 
-- Choose a provider, then select an account or API key to switch immediately and permanently. There is no account action submenu.
-- **Edit label** lets you select and rename a saved account or API key from the provider screen.
-- **Add account / API key** asks for a label and runs that provider's OAuth or API-key login. Successful login saves and activates the account. Failed or cancelled login leaves the current credentials unchanged.
-- **Save current login** labels and saves the provider's existing Pi credentials.
-- **Add provider** shows available providers that have not been added yet, then guides you through adding their first account. Custom providers must first be registered with Pi.
-- **Remove account** removes an inactive saved record after confirmation. It does not log out Pi.
+- **Label** displays the current account label. Press Enter to edit it directly. Existing unnamed Pi credentials are saved as `default` (or a numbered variant if that label already exists).
+- **Switch** displays the current account label. Press Enter to choose a saved account or API key; the selection takes effect permanently.
+- **Add provider** is the only interactive entry point for adding credentials. Choose a provider, enter a label, then complete its native OAuth or API-key login. Existing providers are also available here to add another account. Failed or cancelled login leaves current credentials unchanged.
+- **Remove provider** asks which provider to remove, then confirms removal of all its saved accounts and its current Pi login. It does not remove the provider's model definitions or environment variables.
+- Provider screens contain only **Label**, **Switch**, and **Back**.
+- Lists show at most ten rows, shrink with the terminal, and keep the selected item visible. Type to search by name or provider ID; use arrows, Page Up/Down, Home/End, or the mouse wheel to navigate.
 - Esc returns to the previous screen; Esc on the provider list closes the manager.
 
 The provider/account drill-down and native provider login flow are inspired by [pi-multiprovider](https://github.com/monotykamary/pi-multiprovider). Account selection here remains persistent until you explicitly change it. There is no automatic rotation or failover.

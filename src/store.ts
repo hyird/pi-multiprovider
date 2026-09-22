@@ -92,6 +92,25 @@ export class AccountStore {
   async providers(): Promise<string[]> {
     return this.transaction(async (auth, pool) => [...new Set([...Object.keys(auth), ...pool.accounts.map(a => a.provider)])]);
   }
+  async ensureCurrent(provider: string): Promise<void> {
+    await this.transaction(async (auth, pool, savePool) => {
+      const current = auth[provider];
+      if (!credential(current) || pool.accounts.some(a => a.provider === provider && sameAccount(a.credential, current))) return;
+      let name = "default";
+      let suffix = 2;
+      while (pool.accounts.some(a => a.provider === provider && a.name === name)) name = `default-${suffix++}`;
+      pool.accounts.push({ provider, name, credential: current });
+      await savePool();
+    });
+  }
+  async removeProvider(provider: string): Promise<void> {
+    await this.transaction(async (auth, pool, savePool, saveAuth) => {
+      pool.accounts = pool.accounts.filter(a => a.provider !== provider);
+      await savePool();
+      delete auth[provider];
+      await saveAuth();
+    });
+  }
   async add(provider: string, name: string, value: unknown): Promise<void> {
     validateLabel(name);
     if (!credential(value)) throw new AccountError("Login returned an unsupported credential format. Nothing was saved.");

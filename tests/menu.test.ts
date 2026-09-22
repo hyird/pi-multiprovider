@@ -5,7 +5,16 @@ import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { accountMenu, loginAccount } from "../src/menu.ts";
 import { AccountStore } from "../src/store.ts";
+import type { Choice } from "../src/selector.ts";
 
+vi.mock("../src/selector.ts", async importOriginal => ({
+  ...await importOriginal<typeof import("../src/selector.ts")>(),
+  selectMenu: async (ctx: ExtensionCommandContext, title: string, choices: Choice[] | string[]) => {
+    const items = choices.map(c => typeof c === "string" ? { id: c, label: c } : c);
+    const selected = await ctx.ui.select(title, items.map(c => c.label));
+    return items.find(c => c.label === selected)?.id;
+  },
+}));
 let dir: string;
 let store: AccountStore;
 beforeEach(async () => {
@@ -15,8 +24,7 @@ beforeEach(async () => {
 });
 afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 function context(selections: (string | undefined)[], inputs: (string | undefined)[]) {
-  const login = vi.fn(async (interaction) => ({ type: "api_key", key: await interaction.prompt({ type: "secret", message: "API Key" }) }));
-  const provider = { id: "test", auth: { apiKey: { login } } };
+  const login = vi.fn(async interaction => ({ type: "api_key", key: await interaction.prompt({ type: "secret", message: "API key" }) }));
   const ui = {
     select: vi.fn(async (_title: string, options: string[]) => {
       const next = selections.shift();
@@ -27,51 +35,64 @@ function context(selections: (string | undefined)[], inputs: (string | undefined
     onTerminalInput: vi.fn(() => vi.fn()),
   };
   const ctx = { hasUI: true, isIdle: () => true, ui, reload: vi.fn(), modelRegistry: {
-    getProvider: () => provider, getAll: () => [{ provider: "test" }], getRegisteredProviderIds: () => [],
+    getProvider: () => ({ auth: { apiKey: { login } } }),
+    getProviderDisplayName: (id: string) => id === "test" ? "Test Provider" : "New Provider",
+    getAll: () => [{ provider: "test" }, { provider: "new-provider" }], getRegisteredProviderIds: () => [],
     refresh: vi.fn(async () => ({ errors: new Map(), aborted: false })),
   } } as unknown as ExtensionCommandContext;
   const pi = { events: { emit: vi.fn() } } as unknown as ExtensionAPI;
-  return { ctx, pi, ui, login, provider };
+  return { ctx, pi, ui, login };
 }
-it("adds, labels, and switches accounts entirely inside the menu", async () => {
+it("shows Pi display names and keeps removal and addition at the root bottom", async () => {
+  const { ctx, pi, ui } = context([], []);
+  await accountMenu(pi, ctx, store);
+  expect(ui.select).toHaveBeenCalledExactlyOnceWith("Accounts · Providers", ["Test Provider", "Add provider", "Remove provider"]);
+});
+it("offers exactly Label, Switch, Back and edits the default label directly", async () => {
+  const before = await readFile(join(dir, "auth.json"), "utf8");
+  const { ctx, pi, ui } = context(["Test Provider", "Label    default", "Back"], ["work"]);
+  await accountMenu(pi, ctx, store);
+  expect(ui.select).toHaveBeenCalledWith("Test Provider", ["Label    default", "Switch   default", "Back"]);
+  expect(ui.select).toHaveBeenCalledWith("Test Provider", ["Label    work", "Switch   work", "Back"]);
+  expect(ui.input).toHaveBeenCalledWith("Label", "default");
+  expect(await readFile(join(dir, "auth.json"), "utf8")).toBe(before);
+});
+it("adds another key through the root then switches through the provider Switch row", async () => {
   await store.save("test", "work");
-  const { ctx, pi, login } = context(["Add account / API key", "Edit label", "● personal", "○ work", "Back"], ["personal", "new-fixture", "backup"]);
-  await accountMenu(pi, ctx, store, "test");
-  expect(login).toHaveBeenCalledOnce();
-  expect(await store.list("test")).toEqual([{ name: "work", active: true }, { name: "backup", active: false }]);
-  expect(JSON.parse(await readFile(join(dir, "auth.json"), "utf8")).test.key).toBe("old-fixture");
+  const { ctx, pi } = context(["Add provider", "Test Provider", "Switch   personal", "○ work", "Back"], ["personal", "new-fixture"]);
+  await accountMenu(pi, ctx, store);
+  expect(await store.list("test")).toEqual([{ name: "work", active: true }, { name: "personal", active: false }]);
   expect(ctx.reload).not.toHaveBeenCalled();
 });
-it("allows adding the very first saved account and backs up the current login", async () => {
-  const { ctx, pi } = context(["Add account / API key", "Back"], ["new-account", "new-fixture"]);
-  await accountMenu(pi, ctx, store, "test");
-  const saved = await store.list("test");
-  expect(saved).toContainEqual({ name: "new-account", active: true });
-  expect(saved.some(a => a.name.startsWith("backup-") && !a.active)).toBe(true);
-});
-it("cancelled login keeps authentication and the pool unchanged", async () => {
-  const { ctx, pi, ui } = context(["Add account / API key", "Back"], ["cancelled-account", undefined]);
-  await accountMenu(pi, ctx, store, "test");
-  expect(await store.list("test")).toEqual([]);
-  expect(JSON.parse(await readFile(join(dir, "auth.json"), "utf8")).test.key).toBe("old-fixture");
-  expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("cancelled"), "error");
-});
-it("rejects duplicate labels before starting login and preserves credentials on rename", async () => {
-  await store.save("test", "work");
-  const before = await readFile(join(dir, "auth.json"), "utf8");
-  const { ctx, pi, login } = context(["Add account / API key", "Edit label", "● work", "Back"], ["work", "new-label"]);
-  await accountMenu(pi, ctx, store, "test");
-  expect(login).not.toHaveBeenCalled();
-  expect(await readFile(join(dir, "auth.json"), "utf8")).toBe(before);
-  expect(await new AccountStore(dir).list("test")).toEqual([{ name: "new-label", active: true }]);
-});
-it("selects a provider when no current model exists", async () => {
-  const { ctx, pi, ui } = context(["test", "Save current login", "Back"], ["current-account"]);
+it("adds a new provider by its display name and stores its actual ID", async () => {
+  const { ctx, pi, ui } = context(["Add provider", "New Provider", "Back"], ["personal", "new-key"]);
   await accountMenu(pi, ctx, store);
-  expect(ui.select).toHaveBeenCalledWith("Accounts · Providers", ["test", "Add provider"]);
-  expect(await store.list("test")).toEqual([{ name: "current-account", active: true }]);
+  expect(ui.select).toHaveBeenLastCalledWith("Accounts · Providers", ["New Provider", "Test Provider", "Add provider", "Remove provider"]);
+  expect(await store.list("new-provider")).toEqual([{ name: "personal", active: true }]);
 });
-it("callback cancellation of manual input does not abort a successful OAuth login", async () => {
+it("cancelled login creates no provider and does not change current credentials", async () => {
+  const before = await readFile(join(dir, "auth.json"), "utf8");
+  const { ctx, pi } = context(["Add provider", "New Provider"], ["personal", undefined]);
+  await accountMenu(pi, ctx, store);
+  expect(await store.providers()).toEqual(["test"]);
+  expect(await readFile(join(dir, "auth.json"), "utf8")).toBe(before);
+});
+it("removes a provider only after confirmation and preserves other providers", async () => {
+  await store.add("other", "key", { type: "api_key", key: "fixture-other" });
+  await store.ensureCurrent("test");
+  const { ctx, pi, ui } = context(["Remove provider", "Test Provider"], []);
+  await accountMenu(pi, ctx, store);
+  expect(ui.confirm).toHaveBeenCalledOnce();
+  expect(await store.providers()).toEqual(["other"]);
+  expect(JSON.parse(await readFile(join(dir, "auth.json"), "utf8"))).toEqual({});
+});
+it("cancelled removal leaves credentials intact", async () => {
+  const { ctx, pi, ui } = context(["Remove provider", "Test Provider"], []);
+  ui.confirm.mockResolvedValue(false);
+  await accountMenu(pi, ctx, store);
+  expect(await store.providers()).toEqual(["test"]);
+});
+it("callback cancellation of manual input does not abort successful OAuth login", async () => {
   const { ctx } = context([], []);
   const manual = new AbortController();
   ctx.ui.input = vi.fn(async () => { manual.abort(); return undefined; });
@@ -83,35 +104,4 @@ it("callback cancellation of manual input does not abort a successful OAuth logi
     return value;
   } } } } as unknown as Parameters<typeof loginAccount>[1];
   expect(await loginAccount(ctx, provider)).toEqual(value);
-});
-
-it("lists only configured providers at the root and keeps Add provider last", async () => {
-  const { ctx, pi, ui } = context([], []);
-  ctx.modelRegistry.getAll = vi.fn(() => [{ provider: "unconfigured" }] as ReturnType<typeof ctx.modelRegistry.getAll>);
-  await accountMenu(pi, ctx, store);
-  expect(ui.select).toHaveBeenCalledExactlyOnceWith("Accounts · Providers", ["test", "Add provider"]);
-});
-
-it("adds a new provider from the final root row and returns to the updated provider list", async () => {
-  const { ctx, pi, ui } = context(["Add provider", "new-provider", "Back"], ["personal", "new-key"]);
-  ctx.modelRegistry.getAll = vi.fn(() => [{ provider: "test" }, { provider: "new-provider" }] as ReturnType<typeof ctx.modelRegistry.getAll>);
-  await accountMenu(pi, ctx, store);
-  expect(ui.select).toHaveBeenCalledWith("Add provider", ["new-provider"]);
-  expect(ui.select).toHaveBeenLastCalledWith("Accounts · Providers", ["new-provider", "test", "Add provider"]);
-  expect(await store.list("new-provider")).toEqual([{ name: "personal", active: true }]);
-});
-
-it("cancelled provider creation leaves no empty provider entry", async () => {
-  const { ctx, pi, ui } = context(["Add provider", "new-provider"], ["personal", undefined]);
-  ctx.modelRegistry.getAll = vi.fn(() => [{ provider: "new-provider" }] as ReturnType<typeof ctx.modelRegistry.getAll>);
-  await accountMenu(pi, ctx, store);
-  expect(ui.select).toHaveBeenLastCalledWith("Accounts · Providers", ["test", "Add provider"]);
-  expect(await store.providers()).toEqual(["test"]);
-});
-
-it("shows Add provider as the only option on a fresh installation", async () => {
-  await writeFile(join(dir, "auth.json"), "{}");
-  const { ctx, pi, ui } = context([], []);
-  await accountMenu(pi, ctx, store);
-  expect(ui.select).toHaveBeenCalledExactlyOnceWith("Accounts · Providers", ["Add provider"]);
 });
