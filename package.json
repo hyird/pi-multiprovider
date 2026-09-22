@@ -1,0 +1,16 @@
+{
+  "name": "@hyird/pi-multiprovider",
+  "version": "0.1.0",
+  "description": "Persistent multi-account switching for Pi",
+  "type": "module",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/hyird/pi-multiprovider.git" },
+  "homepage": "https://github.com/hyird/pi-multiprovider#readme",
+  "keywords": ["pi-package", "pi-extension", "accounts"],
+  "files": ["index.ts", "src/", "README.md"],
+  "pi": { "extensions": ["./index.ts"] },
+  "scripts": { "typecheck": "tsc --noEmit", "test": "vitest run", "check": "bun run typecheck && bun run test" },
+  "dependencies": { "proper-lockfile": "^4.1.2" },
+  "peerDependencies": { "@earendil-works/pi-coding-agent": ">=0.87.0" },
+  "devDependencies": { "@earendil-works/pi-coding-agent": "0.87.0", "@types/node": "~22.19.0", "@types/proper-lockfile": "^4.1.4", "typescript": "^6.0.3", "vitest": "^4.1.5" }
+}
