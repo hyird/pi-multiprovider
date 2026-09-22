@@ -58,7 +58,15 @@ The extension uses Pi's auth-file lock and atomic replacement. Before switching 
 
 Environment-only authentication, CLI runtime overrides, and independent account pools from other extensions are outside this plugin's control. In-flight requests in another process are not interrupted. Account operations are blocked while the current agent is busy.
 
-The `pi-accounts:changed` event allows other extensions to invalidate cached account data.
+## Usage integration
+
+With the latest [pi-better-usage](https://github.com/hyird/pi-better-usage), switching accounts immediately clears the old usage and refreshes the footer with the new account's label. `/usage` reports every saved account, including labels, per-account failures, and a `[Current]` marker based on `auth.json`.
+
+The account in `auth.json` is authoritative. If it does not match any saved account, usage shows a separate **Unmanaged [Current]** entry. Reading usage does not import it into the account pool. Switching explicitly still preserves the outgoing credentials before replacing them.
+
+Inactive OAuth tokens are refreshed in the account pool without activating those accounts. Unsupported providers and credential types are listed as unavailable. Inactive command-based API keys cannot be queried in isolation.
+
+The extension publishes `pi-accounts:service` and `pi-accounts:changed` for usage integration. No credential data is included in change notifications.
 
 ## Development
 

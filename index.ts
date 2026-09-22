@@ -1,9 +1,11 @@
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { AccountError, AccountStore } from "./src/store.ts";
 import { runAccountCommand, type AccountCommand } from "./src/menu.ts";
+import { registerUsageService } from "./src/usage-service.ts";
 
 export default function accounts(pi: ExtensionAPI) {
   const store = new AccountStore(getAgentDir());
+  registerUsageService(pi, store);
   let busy = false;
   const commands: { name: string; action: AccountCommand; description: string }[] = [
     { name: "multilogin", action: "login", description: "Sign in to a provider and label the account" },

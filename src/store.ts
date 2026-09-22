@@ -92,10 +92,49 @@ export class AccountStore {
   async providers(): Promise<string[]> {
     return this.transaction(async (auth, pool) => [...new Set([...Object.keys(auth), ...pool.accounts.map(a => a.provider)])]);
   }
-  async ensureCurrent(provider: string): Promise<void> {
+  async listAccounts() {
+    return this.transaction(async (auth, pool) => pool.accounts.map(a => { const current = auth[a.provider]; return ({
+      provider: a.provider, name: a.name, authKind: a.credential.type === "oauth" ? "oauth" : "api_key",
+      active: credential(current) && sameAccount(a.credential, current),
+    }); }));
+  }
+  async withAccount<T>(provider: string, name: string, fn: (value: unknown) => Promise<{ credential: unknown; result: T }>): Promise<T> {
+    return this.transaction(async (auth, pool, savePool, saveAuth) => {
+      const account = pool.accounts.find(a => a.provider === provider && a.name === name);
+      if (!account) throw new AccountError("Account not found.");
+      const original = account.credential;
+      const next = await fn(structuredClone(original));
+      if (!credential(next.credential)) throw new AccountError("Invalid refreshed credential.");
+      if (JSON.stringify(next.credential) !== JSON.stringify(original)) {
+        account.credential = next.credential;
+        await savePool();
+        if (credential(auth[provider]) && sameAccount(original, auth[provider])) {
+          auth[provider] = next.credential;
+          await saveAuth();
+        }
+      }
+      return next.result;
+    });
+  }
+  async unmanagedAccounts() {
+    return this.transaction(async (auth, pool) => Object.entries(auth).flatMap(([provider, current]) => {
+      if (!credential(current) || pool.accounts.some(a => a.provider === provider && sameAccount(a.credential, current))) return [];
+      return [{ provider, authKind: current.type === "oauth" ? "oauth" : "api_key" }];
+    }));
+  }
+  async ensureCurrent(provider: string, saveUnknown = true): Promise<void> {
     await this.transaction(async (auth, pool, savePool) => {
       const current = auth[provider];
-      if (!credential(current) || pool.accounts.some(a => a.provider === provider && sameAccount(a.credential, current))) return;
+      if (!credential(current)) return;
+      const matches = pool.accounts.filter(a => a.provider === provider && sameAccount(a.credential, current));
+      if (matches.length) {
+        if (matches.some(a => JSON.stringify(a.credential) !== JSON.stringify(current))) {
+          for (const account of matches) account.credential = current;
+          await savePool();
+        }
+        return;
+      }
+      if (!saveUnknown) return;
       let name = "default";
       let suffix = 2;
       while (pool.accounts.some(a => a.provider === provider && a.name === name)) name = `default-${suffix++}`;

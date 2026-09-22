@@ -23,7 +23,7 @@ it("switches authentication in the existing Pi runtime without reload", async ()
     const emit = vi.fn();
     const names: string[] = [];
     const registerCommand: ExtensionAPI["registerCommand"] = (name, options) => { names.push(name); if (name === "switch-account") handler = options.handler; };
-    extension({ registerCommand, events: { emit } } as unknown as ExtensionAPI);
+    extension({ registerCommand, on: vi.fn(), events: { emit, on: vi.fn() } } as unknown as ExtensionAPI);
     const reload = vi.fn();
     const notify = vi.fn();
     expect(names).toEqual(["multilogin", "multilogout", "switch-account"]);
