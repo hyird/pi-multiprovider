@@ -50,17 +50,19 @@ function context(selections: (string | undefined)[], inputs: (string | undefined
   const pi = { events: { emit: vi.fn() } } as unknown as ExtensionAPI;
   return { ctx, pi, ui };
 }
-it("uses native login with an extra account selector and exits after success", async () => {
-  const { ctx, pi, ui } = context(["test", "Add account"], ["new-key"]);
+it("adds a new account directly after native login with an optional label", async () => {
+  const { ctx, pi, ui } = context(["test"], ["new-key", ""]);
   await runAccountCommand(pi, ctx, store, "login");
-  expect(ui.select).toHaveBeenCalledTimes(2);
-  expect(ui.input).toHaveBeenCalledExactlyOnceWith("Native login");
+  expect(ui.select).toHaveBeenCalledTimes(1);
+  expect(ui.input).toHaveBeenNthCalledWith(1, "Native login");
+  expect(ui.input).toHaveBeenNthCalledWith(2, "Account label (optional)", "default-2");
   expect(await store.list("test")).toEqual([{ name: "default", active: false }, { name: "default-2", active: true }]);
 });
-it("re-login updates a selected account slot instead of silently selecting old credentials", async () => {
-  const { ctx, pi } = context(["test", "default"], ["fresh-key"]);
+it("uses a provided optional label when adding an account", async () => {
+  const { ctx, pi } = context(["test"], ["fresh-key", "personal"]);
   await runAccountCommand(pi, ctx, store, "login");
   expect(JSON.parse(await readFile(join(dir, "auth.json"), "utf8")).test.key).toBe("fresh-key");
+  expect(await store.list("test")).toEqual([{ name: "default", active: false }, { name: "personal", active: true }]);
 });
 it("switches, notifies and exits without opening another menu", async () => {
   await store.ensureCurrent("test"); await store.add("test", "work", { type: "api_key", key: "work-key" });
@@ -72,7 +74,7 @@ it("switches, notifies and exits without opening another menu", async () => {
 });
 it("cancelled native login leaves current credentials unchanged", async () => {
   const before = await readFile(join(dir, "auth.json"), "utf8");
-  const { ctx, pi } = context(["test", "Add account"], [undefined]);
+  const { ctx, pi } = context(["test"], [undefined]);
   await runAccountCommand(pi, ctx, store, "login");
   expect(await readFile(join(dir, "auth.json"), "utf8")).toBe(before);
 });

@@ -50,16 +50,11 @@ export async function runAccountCommand(pi: ExtensionAPI, ctx: Context, store: A
     let initialLabel = "default";
     let suffix = 2;
     while (accounts.some(a => a.name === initialLabel)) initialLabel = `default-${suffix++}`;
-    const slot = explicitLabel ?? await selectMenu(ctx, `Login  /  ${displayName}`, [
-      ...accounts.map(a => ({ id: `saved:${a.name}`, label: a.name, value: a.active ? "Active" : "Saved", description: "Sign in again to this account slot." })),
-      { id: "new", label: "Add account", value: initialLabel, description: "Sign in to another account." },
-    ]);
-    if (!slot) return;
-    const label = explicitLabel ?? (slot === "new" ? initialLabel : slot.slice(6));
-    if (!label) return;
-    validateLabel(label);
     const value = await nativeLogin(ctx, loginSelection!);
     if (!value) return;
+    const requestedLabel = explicitLabel ?? await ctx.ui.input("Account label (optional)", initialLabel);
+    const label = requestedLabel?.trim() || initialLabel;
+    validateLabel(label);
     await store.saveLogin(provider, label, value);
     await activate(pi, ctx, store, provider, label);
     return;
