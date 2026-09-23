@@ -5,8 +5,10 @@ Persistent multi-account switching for Pi 0.87.0. Native Pi login and logout pro
 ## Install
 
 ```text
-pi install git:github.com/hyird/pi-multiprovider
+pi install npm:@hyird/pi-multiprovider
 ```
+
+To install directly from Git instead, run `pi install git:github.com/hyird/pi-multiprovider`.
 
 Run `/reload` once after installing or updating. Switching accounts never requires a reload.
 
