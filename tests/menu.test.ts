@@ -101,12 +101,14 @@ it("edits a label without switching or changing Pi credentials", async () => {
   expect(await new AccountStore(dir).list("test")).toEqual([{ name: "default", active: true }, { name: "personal", active: false }]);
   expect(await readFile(join(dir, "auth.json"), "utf8")).toBe(before);
   expect(ctx.modelRegistry.refresh).not.toHaveBeenCalled();
-  expect(ui.select).toHaveBeenCalledTimes(2);
+  expect(ui.select).toHaveBeenCalledTimes(3);
+  expect(ui.select.mock.calls[2]?.[1]).toContain("personal");
   expect(ui.notify).toHaveBeenCalledWith("Label updated: personal.", "info");
 });
 
 it("cancelling label input leaves the label unchanged", async () => {
-  const { ctx, pi } = context(["Test Provider", "Ctrl+E default"], [undefined]);
+  const { ctx, pi, ui } = context(["Test Provider", "Ctrl+E default"], [undefined]);
   await runAccountCommand(pi, ctx, store, "switch");
   expect(await store.list("test")).toEqual([{ name: "default", active: true }]);
+  expect(ui.select).toHaveBeenCalledTimes(3);
 });

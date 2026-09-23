@@ -60,23 +60,28 @@ export async function runAccountCommand(pi: ExtensionAPI, ctx: Context, store: A
     return;
   }
   await store.ensureCurrent(provider);
-  const accounts = await store.list(provider);
-  const selection = explicitLabel === undefined ? await selectMenu(ctx, `${title}  /  ${displayName}`, [...accounts.map(a => ({
+  let accounts = await store.list(provider);
+  const accountChoices = () => accounts.map(a => ({
     id: `account:${a.name}`, label: a.name, value: a.active ? "Active" : "Saved",
     description: command === "switch" ? "Switch permanently, then close this menu." : "Remove this saved login from Pi.",
     danger: command === "logout",
     editId: command === "switch" ? `label:${a.name}` : undefined,
-  }))]) : `account:${explicitLabel}`;
-  if (command === "switch" && selection?.startsWith("label:")) {
+  }));
+  let selection = explicitLabel === undefined
+    ? await selectMenu(ctx, `${title}  /  ${displayName}`, accountChoices())
+    : `account:${explicitLabel}`;
+  while (command === "switch" && selection?.startsWith("label:")) {
     const selected = selection.slice("label:".length);
     if (!accounts.some(a => a.name === selected)) throw new AccountError("Account not found.");
     const label = (await ctx.ui.input("Edit label", selected))?.trim();
-    if (!label) return;
-    if (!ctx.isIdle()) throw new AccountError("A request is running. Try again when it finishes.");
-    await store.rename(provider, selected, label);
-    if (accounts.find(a => a.name === selected)?.active) pi.events.emit("pi-accounts:changed", { provider, name: label });
-    ctx.ui.notify(`Label updated: ${label}.`, "info");
-    return;
+    if (label) {
+      if (!ctx.isIdle()) throw new AccountError("A request is running. Try again when it finishes.");
+      await store.rename(provider, selected, label);
+      if (accounts.find(a => a.name === selected)?.active) pi.events.emit("pi-accounts:changed", { provider, name: label });
+      ctx.ui.notify(`Label updated: ${label}.`, "info");
+    }
+    accounts = await store.list(provider);
+    selection = await selectMenu(ctx, `${title}  /  ${displayName}`, accountChoices());
   }
   const name = selection?.slice("account:".length);
   if (!name) return;
