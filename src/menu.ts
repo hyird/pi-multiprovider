@@ -37,7 +37,10 @@ export async function runAccountCommand(pi: ExtensionAPI, ctx: Context, store: A
     item.value = saved.find(a => a.active)?.name ?? (stored.includes(item.id) ? "Pi default" : "Not signed in");
     item.description = command === "login" ? "Sign in with OAuth or an API key." : `${saved.length} saved accounts · ${item.id}`;
   }
-  const loginSelection = command !== "switch" ? await selectLogin(ctx, explicitProvider ? ids.filter(id => id === explicitProvider) : ids, command === "login" ? "login" : "logout") : undefined;
+  const loginSelection = command !== "switch" ? await selectLogin(
+    ctx, explicitProvider ? ids.filter(id => id === explicitProvider) : ids,
+    command === "login" ? "login" : "logout", await store.currentAuthKinds(),
+  ) : undefined;
   if (command !== "switch" && !loginSelection) return;
   const provider = loginSelection?.provider.id ?? explicitProvider ?? await selectMenu(ctx, `${title}  /  Providers`, choices);
   if (!provider) return;

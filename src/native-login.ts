@@ -6,7 +6,7 @@ type Provider = NonNullable<ReturnType<ExtensionCommandContext["modelRegistry"][
 type Interaction = Parameters<NonNullable<Provider["auth"]["oauth"]>["login"]>[0];
 export type LoginSelection = { provider: Provider; authType: "oauth" | "api_key" };
 
-export async function selectLogin(ctx: ExtensionCommandContext, ids: string[], mode: "login" | "logout" = "login"): Promise<LoginSelection | undefined> {
+export async function selectLogin(ctx: ExtensionCommandContext, ids: string[], mode: "login" | "logout" = "login", currentAuthKinds: Readonly<Record<string, "oauth" | "api_key">> = {}): Promise<LoginSelection | undefined> {
   const options = ids.flatMap(id => {
     const provider = ctx.modelRegistry.getProvider(id);
     if (!provider) return [];
@@ -14,12 +14,21 @@ export async function selectLogin(ctx: ExtensionCommandContext, ids: string[], m
     const common = { id, name: provider.name, status: status.configured ? { type: provider.auth.oauth ? "oauth" as const : "api_key" as const, source: status.label ?? status.source } : undefined };
     return [
       ...(provider.auth.oauth ? [{ ...common, authType: "oauth" as const, method: provider.auth.oauth }] : []),
-      ...(provider.auth.apiKey ? [{ ...common, authType: "api_key" as const, method: provider.auth.apiKey }] : []),
+      ...(provider.auth.apiKey && currentAuthKinds[id] !== "oauth" ? [{ ...common, authType: "api_key" as const, method: provider.auth.apiKey }] : []),
     ];
   }).sort((a, b) => a.name.localeCompare(b.name));
-  return ctx.ui.custom<LoginSelection | undefined>((_tui, _theme, _keys, done) => new OAuthSelectorComponent(mode, options,
-    (id, authType) => { const provider = ctx.modelRegistry.getProvider(id); done(provider ? { provider, authType } : undefined); },
-    () => done(undefined)));
+  const providerOptions = options.filter((option, index) => options.findIndex((other) => other.id === option.id) === index);
+  const providerId = await ctx.ui.custom<string | undefined>((_tui, _theme, _keys, done) => new OAuthSelectorComponent(mode, providerOptions,
+    (id) => done(id), () => done(undefined)));
+  if (!providerId) return undefined;
+  const provider = ctx.modelRegistry.getProvider(providerId);
+  if (!provider) return undefined;
+  const methods = options.filter((option) => option.id === providerId);
+  if (mode === "logout" || methods.length === 1) return { provider, authType: methods[0]!.authType };
+  const labels: string[] = methods.map((method) => method.authType === "oauth" ? "Subscription" : "API key");
+  const selected = await ctx.ui.select(`${provider.name} sign-in method`, labels);
+  if (!selected) return undefined;
+  return { provider, authType: methods[labels.indexOf(selected)]!.authType };
 }
 
 async function cancellable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {

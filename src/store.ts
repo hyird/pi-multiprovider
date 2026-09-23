@@ -92,6 +92,12 @@ export class AccountStore {
   async providers(): Promise<string[]> {
     return this.transaction(async (auth, pool) => [...new Set([...Object.keys(auth), ...pool.accounts.map(a => a.provider)])]);
   }
+  async currentAuthKinds(): Promise<Record<string, Credential["type"]>> {
+    return this.transaction(async (auth) => Object.fromEntries(
+      Object.entries(auth).filter((entry): entry is [string, Credential] => credential(entry[1]))
+        .map(([provider, current]) => [provider, current.type]),
+    ));
+  }
   async listAccounts() {
     return this.transaction(async (auth, pool) => pool.accounts.map(a => { const current = auth[a.provider]; return ({
       provider: a.provider, name: a.name, authKind: a.credential.type === "oauth" ? "oauth" : "api_key",

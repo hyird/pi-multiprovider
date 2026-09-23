@@ -22,6 +22,10 @@ describe("persistent account storage", () => {
     expect(await auth()).toEqual({ provider: a, other: a });
     expect(await new AccountStore(dir).list("provider")).toEqual([{ name: "work", active: true }, { name: "personal", active: false }]);
   });
+  it("reports the current authentication kind without exposing credentials", async () => {
+    await login(oauth("alice", 1));
+    expect(await store.currentAuthKinds()).toEqual({ provider: "oauth", other: "api_key" });
+  });
   it("backs up an unsaved login before switching", async () => {
     await login(a); await store.save("provider", "work"); await login(b);
     await store.use("provider", "work");

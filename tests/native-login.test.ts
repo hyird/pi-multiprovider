@@ -26,6 +26,31 @@ it("uses the real Pi login selector and returns the original provider ID", async
   expect(result?.authType).toBe("api_key");
   expect(rendered.join("\n")).toContain("Test Provider");
 });
+it("shows a provider once, then asks for its authentication method", async () => {
+  const { ctx, provider, rendered } = context(["\r"]);
+  (provider as { name: string }).name = "xAI";
+  provider.auth.oauth = { name: "Subscription" } as typeof provider.auth.oauth;
+  let methods: string[] = [];
+  (ctx.ui as any).select = async (_title: string, choices: string[]) => {
+    methods = choices;
+    return choices[1];
+  };
+  const result = await selectLogin(ctx, ["test"]);
+  expect(result?.authType).toBe("api_key");
+  expect(methods).toEqual(["Subscription", "API key"]);
+  expect(rendered.join("\n").match(/xAI/g)).toHaveLength(1);
+});
+it("hides API-key login when xAI is already authenticated by subscription", async () => {
+  const { ctx, provider, rendered } = context(["\r"]);
+  (provider as { name: string }).name = "xAI";
+  provider.auth.oauth = { name: "Subscription" } as typeof provider.auth.oauth;
+  (ctx.ui as any).select = vi.fn();
+  const result = await selectLogin(ctx, ["test"], "login", { test: "oauth" });
+  expect(result?.authType).toBe("oauth");
+  expect(ctx.ui.select).not.toHaveBeenCalled();
+  expect(rendered.join("\n").match(/xAI/g)).toHaveLength(1);
+  expect(rendered.join("\n")).not.toContain("API key");
+});
 it("collects an API key through the real Pi LoginDialogComponent", async () => {
   const { ctx, provider, rendered } = context(["fixture-key", "\r"]);
   expect(await nativeLogin(ctx, { provider, authType: "api_key" })).toEqual({ type: "api_key", key: "fixture-key" });
