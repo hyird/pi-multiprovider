@@ -17,16 +17,6 @@ vi.mock("../src/selector.ts", async original => ({
     return items.find(c => c.label === selected)?.id;
   },
 }));
-vi.mock("../src/native-login.ts", () => ({
-  selectLogin: async (ctx: ExtensionCommandContext, ids: string[]) => {
-    const id = await ctx.ui.select("Native provider selector", ids);
-    return id ? { provider: ctx.modelRegistry.getProvider(id), authType: "api_key" } : undefined;
-  },
-  nativeLogin: async (ctx: ExtensionCommandContext) => {
-    const key = await ctx.ui.input("Native login");
-    return key === undefined ? undefined : { type: "api_key", key };
-  },
-}));
 let dir: string;
 let store: AccountStore;
 beforeEach(async () => {
@@ -50,54 +40,27 @@ function context(selections: (string | undefined)[], inputs: (string | undefined
   const pi = { events: { emit: vi.fn() } } as unknown as ExtensionAPI;
   return { ctx, pi, ui };
 }
-it("adds a new account directly after native login with an optional label", async () => {
-  const { ctx, pi, ui } = context(["test"], ["new-key", ""]);
-  await runAccountCommand(pi, ctx, store, "login");
-  expect(ui.select).toHaveBeenCalledTimes(1);
-  expect(ui.input).toHaveBeenNthCalledWith(1, "Native login");
-  expect(ui.input).toHaveBeenNthCalledWith(2, "Account label (optional)", "default-2");
-  expect(await store.list("test")).toEqual([{ name: "default", active: false }, { name: "default-2", active: true }]);
-});
-it("uses a provided optional label when adding an account", async () => {
-  const { ctx, pi } = context(["test"], ["fresh-key", "personal"]);
-  await runAccountCommand(pi, ctx, store, "login");
-  expect(JSON.parse(await readFile(join(dir, "auth.json"), "utf8")).test.key).toBe("fresh-key");
-  expect(await store.list("test")).toEqual([{ name: "default", active: false }, { name: "personal", active: true }]);
-});
+
+
 it("switches, notifies and exits without opening another menu", async () => {
   await store.ensureCurrent("test"); await store.add("test", "work", { type: "api_key", key: "work-key" });
   const { ctx, pi, ui } = context(["Test Provider", "work"], []);
-  await runAccountCommand(pi, ctx, store, "switch");
+  await runAccountCommand(pi, ctx, store);
   expect(ui.select).toHaveBeenCalledTimes(2);
+  expect(ui.select.mock.calls[1]?.[1]).not.toContain("Remove saved account…");
   expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("Switched permanently"), "info");
   expect(ctx.reload).not.toHaveBeenCalled();
 });
-it("cancelled native login leaves current credentials unchanged", async () => {
-  const before = await readFile(join(dir, "auth.json"), "utf8");
-  const { ctx, pi } = context(["test"], [undefined]);
-  await runAccountCommand(pi, ctx, store, "login");
-  expect(await readFile(join(dir, "auth.json"), "utf8")).toBe(before);
-});
-it("logout removes only the chosen login and keeps other accounts", async () => {
-  await store.add("test", "other", { type: "api_key", key: "other-key" });
-  const { ctx, pi, ui } = context(["test", "default"], []);
-  await runAccountCommand(pi, ctx, store, "logout");
-  expect(ui.confirm).toHaveBeenCalledOnce();
-  expect(await store.list("test")).toEqual([{ name: "other", active: false }]);
-  expect(JSON.parse(await readFile(join(dir, "auth.json"), "utf8"))).toEqual({});
-});
-it("cancelled logout keeps the current login", async () => {
-  const { ctx, pi, ui } = context(["test", "default"], []); ui.confirm.mockResolvedValue(false);
-  await runAccountCommand(pi, ctx, store, "logout");
-  expect(JSON.parse(await readFile(join(dir, "auth.json"), "utf8")).test.key).toBe("old-fixture");
-});
+
+
+
 
 it("edits a label without switching or changing Pi credentials", async () => {
   await store.ensureCurrent("test");
   await store.add("test", "spare", { type: "api_key", key: "spare-key" });
   const before = await readFile(join(dir, "auth.json"), "utf8");
   const { ctx, pi, ui } = context(["Test Provider", "Ctrl+E spare"], ["personal"]);
-  await runAccountCommand(pi, ctx, store, "switch");
+  await runAccountCommand(pi, ctx, store);
   expect(await new AccountStore(dir).list("test")).toEqual([{ name: "default", active: true }, { name: "personal", active: false }]);
   expect(await readFile(join(dir, "auth.json"), "utf8")).toBe(before);
   expect(ctx.modelRegistry.refresh).not.toHaveBeenCalled();
@@ -108,7 +71,7 @@ it("edits a label without switching or changing Pi credentials", async () => {
 
 it("cancelling label input leaves the label unchanged", async () => {
   const { ctx, pi, ui } = context(["Test Provider", "Ctrl+E default"], [undefined]);
-  await runAccountCommand(pi, ctx, store, "switch");
+  await runAccountCommand(pi, ctx, store);
   expect(await store.list("test")).toEqual([{ name: "default", active: true }]);
   expect(ui.select).toHaveBeenCalledTimes(3);
 });

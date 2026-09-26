@@ -2,10 +2,10 @@ import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { OAuthCredential } from "@earendil-works/pi-ai";
 import { AccountStore } from "../src/store.ts";
-import { createUsageService } from "../src/usage-service.ts";
+import { ACCOUNTS_SERVICE_EVENT, createUsageService, registerUsageService } from "../src/usage-service.ts";
 
 let dir: string;
 let store: AccountStore;
@@ -61,4 +61,33 @@ it("marks an unknown auth.json login as Unmanaged without importing it into the 
   ]);
   expect(await service.resolveAccountAuth("current:test", ctx)).toEqual({ accessToken: "external-key", label: "Unmanaged" });
   expect(await readFile(join(dir, "accounts.json"), "utf8")).toBe(pool);
+});
+
+it("publishes startup synchronization and notifies usage listeners after native login and logout", async () => {
+  const handlers = new Map<string, (event: unknown, ctx: ExtensionContext) => Promise<void>>();
+  let service: ReturnType<typeof createUsageService> | undefined;
+  const notify = vi.fn();
+  const ctx = { hasUI: true, ui: { notify } } as unknown as ExtensionContext;
+  const pi = {
+    on: (name: string, handler: (event: unknown, ctx: ExtensionContext) => Promise<void>) => handlers.set(name, handler),
+    events: { on: vi.fn(), emit: (name: string, value: unknown) => { if (name === ACCOUNTS_SERVICE_EVENT) service = value as typeof service; } },
+  } as unknown as ExtensionAPI;
+  await writeFile(join(dir, "auth.json"), JSON.stringify({ test: { type: "api_key", key: "startup" } }));
+  registerUsageService(pi, store);
+  const changed = vi.fn();
+  service!.onActiveAccountChanged("test", changed);
+  try {
+    await handlers.get("session_start")!({}, ctx);
+    expect((await service!.getActiveAccount("test", ctx))?.label).toBe("default");
+    expect(changed).toHaveBeenCalledTimes(1);
+    await writeFile(join(dir, "auth.json"), JSON.stringify({ test: { type: "api_key", key: "native-login" } }));
+    await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(2));
+    expect((await service!.getActiveAccount("test", ctx))?.label).toBe("default-2");
+    expect(notify).toHaveBeenCalledTimes(2);
+    await writeFile(join(dir, "auth.json"), "{}");
+    await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(3));
+    expect(await service!.getActiveAccount("test", ctx)).toBeUndefined();
+    expect(await service!.listAccounts()).toHaveLength(1);
+    expect(notify).toHaveBeenCalledTimes(2);
+  } finally { await handlers.get("session_shutdown")!({}, ctx); }
 });

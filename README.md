@@ -1,6 +1,6 @@
 # pi-multiprovider
 
-Persistent multi-account switching for Pi 0.87.0. Native Pi login and logout provider pickers, an extra account-selection step, and permanent switching. All interface text is in English.
+Persistent multi-account switching for Pi 0.87.0. Automatic synchronization with native Pi login/logout and permanent account switching. All interface text is in English.
 
 ## Install
 
@@ -14,23 +14,21 @@ Run `/reload` once after installing or updating. Switching accounts never requir
 
 | Command | Interaction |
 | --- | --- |
-| `/multilogin` | Provider picker → authentication method when needed → account slot → native Pi login dialog |
-| `/multilogout` | Native Pi logout provider picker → saved account → confirm sign-out |
+| `/login` (native Pi) | Sign in; the extension automatically saves the account |
+| `/logout` (native Pi) | Sign out; the extension removes the just-logged-out saved account |
 | `/switch-account` | Provider → saved account/API key → switch, notify, close |
 
 To change a label, run `/switch-account`, choose a provider, highlight an account, and press **Ctrl+E**. Enter the new label and press Enter to save. This updates only the saved label; it does not switch accounts or modify Pi's current credentials. Esc cancels. Labels must be unique within a provider. Pressing Enter on an account still switches immediately.
 
-Login reuses Pi's `OAuthSelectorComponent` and `LoginDialogComponent`, including browser launch, device codes, manual callback input, and provider-specific login prompts. Each provider appears once. If the current account already uses subscription authentication, its API-key option is hidden. When both methods remain available, choose the method after selecting the provider. There is no separate login settings screen. Selecting a saved slot signs in again to that slot. New slots receive `default`, `default-2`, and so on.
+Login uses Pi’s built-in `/login`. New accounts are saved automatically; no label input is required.
 
 You can specify a provider ID and a label directly:
 
 ```text
-/multilogin openai-codex work
-/multilogout openai-codex work
 /switch-account openai-codex work
 ```
 
-Successful login saves and activates the selected account. Cancelling authentication leaves current credentials unchanged. Logout removes the selected saved login (including aliases with identical credentials); if it is active, it also clears that provider's current Pi login. Other saved accounts remain available.
+To remove a saved account, select it with `/switch-account`, then use native `/logout` for its provider. While running, the extension detects the removed current login and deletes matching saved aliases. Other accounts remain available. `/switch-account` only switches and renames accounts; it has no delete action.
 
 Switching writes the selected credentials to the global `auth.json`, refreshes Pi's existing runtime, displays a confirmation, and closes the menu. The choice persists across new sessions and restarts until you explicitly change it. No automatic rotation or failover is performed. Account switching does not change your model; choose another provider's model using `/model`.
 
@@ -44,9 +42,10 @@ The interaction is inspired by [pi-multiprovider](https://pi.dev/packages/pi-mul
 
 Pi 0.87 does not allow extensions to replace or hide its built-in `/login` and `/logout` commands. They remain available:
 
-- Native `/login` replaces Pi's current credential. It does not immediately register that login in this extension. On the next account operation, the current stored login is preserved under a default label if it has not already been saved. Previously unsaved credentials cannot be recovered after native login overwrites them.
-- Native `/logout` clears the current Pi login but leaves this extension's saved accounts intact. A saved account can be selected again using `/switch-account`.
-- `/multilogout` removes the selected saved login and clears the current Pi credential if it matches.
+- Native `/login` replaces Pi's current credential. The extension automatically synchronizes it into the account pool: recognized accounts retain their labels and receive updated tokens; new or unrecognizable accounts get an unused `default`, `default-2`, etc. label. Rename them with `/switch-account`. New accounts produce one notification, and account/usage listeners refresh after synchronization.
+- Native `/logout` clears the current Pi login. While the extension is running, synchronization removes that account's saved records, including matching aliases, and preserves other accounts. Logouts while the extension is stopped are not cleaned up at startup.
+
+Synchronization runs at session startup and watches the agent directory for atomic replacements of `auth.json` and `accounts.json`. Changes are debounced, with a five-second fallback for missed events or temporary errors. Repeated events and the extension's own writes do not repeat change notifications. A previously observed provider entry disappearing from a valid auth file is treated as logout; startup, missing files and corrupt JSON do not delete saved accounts. Synchronization only updates the account pool; it never restores a logged-out credential. Usage queries do not import accounts. A native login that is overwritten again before synchronization cannot be recovered.
 
 The old `/accounts` command is no longer registered.
 

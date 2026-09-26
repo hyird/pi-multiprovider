@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import lockfile from "proper-lockfile";
 
 type Credential = Record<string, unknown> & { type: "oauth" | "api_key" };
@@ -52,8 +52,65 @@ async function atomicWrite(path: string, value: unknown): Promise<void> {
 }
 
 export class AccountStore {
+  private observed = new Map<string, string>();
+  private activeCredentials = new Map<string, Credential>();
   constructor(private dir: string) {}
-  private async transaction<T>(fn: (auth: Record<string, unknown>, pool: Pool, savePool: () => Promise<void>, saveAuth: () => Promise<void>) => Promise<T>): Promise<T> {
+  get directory() { return this.dir; }
+  async reconcileCurrentAccounts() {
+    return this.transaction(async (auth, pool, savePool, _saveAuth, authPresent) => {
+      const added: { provider: string; name: string }[] = [];
+      let dirty = false;
+      // Only a known login disappearing from a valid auth file counts as logout.
+      // Startup, corrupt storage and a missing file must not delete saved accounts.
+      if (authPresent) {
+        for (const [provider, previous] of this.activeCredentials) {
+          if (Object.hasOwn(auth, provider)) continue;
+          const remaining = pool.accounts.filter(a => a.provider !== provider || !sameAccount(a.credential, previous));
+          if (remaining.length !== pool.accounts.length) {
+            pool.accounts = remaining;
+            dirty = true;
+          }
+        }
+      }
+      for (const [provider, current] of Object.entries(auth)) {
+        if (!credential(current)) continue;
+        const matches = pool.accounts.filter(a => a.provider === provider && sameAccount(a.credential, current));
+        if (matches.length) {
+          for (const account of matches) {
+            if (JSON.stringify(account.credential) !== JSON.stringify(current)) {
+              account.credential = current;
+              dirty = true;
+            }
+          }
+        } else {
+          let name = "default";
+          let suffix = 2;
+          while (pool.accounts.some(a => a.provider === provider && a.name === name)) name = `default-${suffix++}`;
+          pool.accounts.push({ provider, name, credential: current });
+          added.push({ provider, name });
+          dirty = true;
+        }
+      }
+      if (dirty) await savePool();
+      if (authPresent) this.rememberActive(auth);
+      const next = new Map<string, string>();
+      for (const provider of new Set([...Object.keys(auth), ...pool.accounts.map(a => a.provider)])) {
+        // Hash credentials instead of retaining another copy of tokens in memory.
+        const state = JSON.stringify([auth[provider], pool.accounts.filter(a => a.provider === provider).map(a => [a.name, a.credential.type])]);
+        next.set(provider, createHash("sha256").update(state).digest("hex"));
+      }
+      const changed = [...new Set([...this.observed.keys(), ...next.keys()])]
+        .filter(provider => this.observed.get(provider) !== next.get(provider));
+      this.observed = next;
+      return { changed, added };
+    });
+  }
+  private rememberActive(auth: Record<string, unknown>) {
+    this.activeCredentials = new Map(Object.entries(auth)
+      .filter((entry): entry is [string, Credential] => credential(entry[1]))
+      .map(([provider, value]) => [provider, structuredClone(value)]));
+  }
+  private async transaction<T>(fn: (auth: Record<string, unknown>, pool: Pool, savePool: () => Promise<void>, saveAuth: () => Promise<void>, authPresent: boolean) => Promise<T>): Promise<T> {
     await mkdir(this.dir, { recursive: true, mode: 0o700 });
     const authPath = join(this.dir, "auth.json");
     const poolPath = join(this.dir, "accounts.json");
@@ -61,7 +118,8 @@ export class AccountStore {
     let compromised = false;
     const release = await lockfile.lock(authPath, { realpath: false, stale: 30000, retries: { retries: 8, minTimeout: 40, maxTimeout: 500 }, onCompromised: () => { compromised = true; } });
     try {
-      const auth = await readJson(authPath, {});
+      const authData = await readJson(authPath, undefined);
+      const auth = authData === undefined ? {} : authData;
       const pool = await readJson(poolPath, { version: 1, accounts: [] });
       if (!record(auth) || !record(pool) || pool.version !== 1 || !Array.isArray(pool.accounts) ||
         !pool.accounts.every(a => record(a) && typeof a.provider === "string" && typeof a.name === "string" && credential(a.credential))) {
@@ -71,7 +129,12 @@ export class AccountStore {
         if (compromised) throw new AccountError("The storage lock was lost. Try again.");
         await atomicWrite(path, value);
       };
-      return await fn(auth, pool as Pool, () => save(poolPath, pool), () => save(authPath, auth));
+      return await fn(auth, pool as Pool, () => save(poolPath, pool), async () => {
+        await save(authPath, auth);
+        // A plugin switch followed immediately by native logout must remove the
+        // newly selected account, even before the debounced watcher has run.
+        this.rememberActive(auth);
+      }, authData !== undefined);
     } finally { await release(); }
   }
   async list(provider: string): Promise<{ name: string; active: boolean }[]> {

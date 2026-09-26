@@ -26,7 +26,7 @@ it("switches authentication in the existing Pi runtime without reload", async ()
     extension({ registerCommand, on: vi.fn(), events: { emit, on: vi.fn() } } as unknown as ExtensionAPI);
     const reload = vi.fn();
     const notify = vi.fn();
-    expect(names).toEqual(["multilogin", "multilogout", "switch-account"]);
+    expect(names).toEqual(["switch-account"]);
     await handler("openai work", { isIdle: () => true, hasUI: true, modelRegistry: registry, reload, ui: { notify } } as unknown as ExtensionCommandContext);
     expect(await registry.getApiKeyForProvider("openai")).toBe("fixture-work");
     expect(reload).not.toHaveBeenCalled();

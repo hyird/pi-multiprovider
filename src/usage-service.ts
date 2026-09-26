@@ -1,6 +1,7 @@
 import { createModels, type Credential } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { AccountStore } from "./store.ts";
+import { createAuthSync } from "./auth-sync.ts";
 
 export const ACCOUNTS_SERVICE_EVENT = "pi-accounts:service";
 type Context = Pick<ExtensionContext, "modelRegistry" | "model" | "sessionManager">;
@@ -11,7 +12,6 @@ const currentId = (provider: string) => `current:${provider}`;
 export function createUsageService(store: AccountStore) {
   const listeners = new Map<string, Set<Callback>>();
   const listAccounts = async () => {
-    for (const provider of await store.providers()) await store.ensureCurrent(provider, false);
     return [
       ...(await store.listAccounts()).map(a => ({ id: accountId(a.provider, a.name), providerId: a.provider, label: a.name, authKind: a.authKind, active: a.active })),
       ...(await store.unmanagedAccounts()).map(a => ({ id: currentId(a.provider), providerId: a.provider, label: "Unmanaged", authKind: a.authKind, active: true })),
@@ -81,10 +81,21 @@ export function createUsageService(store: AccountStore) {
 export function registerUsageService(pi: ExtensionAPI, store: AccountStore) {
   const service = createUsageService(store);
   let ctx: ExtensionContext | undefined;
+  const sync = createAuthSync(store, result => {
+    for (const provider of result.changed) service.changed(provider, ctx);
+    if (ctx?.hasUI && result.added.length) {
+      ctx.ui.notify(`Saved new accounts: ${result.added.map(a => `${a.provider} / ${a.name}`).join(", ")}. Rename with /switch-account.`, "info");
+    }
+  }, () => ctx?.ui.notify("Account synchronization failed. Check account storage and permissions; synchronization will retry automatically.", "warning"));
   pi.events.on("pi-accounts:changed", value => {
-    if (value && typeof value === "object" && "provider" in value && typeof value.provider === "string") service.changed(value.provider, ctx);
+    if (value && typeof value === "object" && "provider" in value && typeof value.provider === "string") sync.schedule();
   });
-  pi.on("session_start", (_event, context) => { ctx = context; pi.events.emit(ACCOUNTS_SERVICE_EVENT, service); });
+  pi.on("session_start", async (_event, context) => {
+    ctx = context;
+    await sync.start();
+    pi.events.emit(ACCOUNTS_SERVICE_EVENT, service);
+  });
+  pi.on("session_shutdown", async () => { await sync.stop(); ctx = undefined; });
   pi.events.on("pi-accounts:request-service", () => pi.events.emit(ACCOUNTS_SERVICE_EVENT, service));
   pi.events.emit(ACCOUNTS_SERVICE_EVENT, service);
 }
