@@ -2,6 +2,14 @@ import { expect, it, vi } from "vitest";
 import { AccountSelector, providerChoices } from "../src/selector.ts";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
+it("wraps full account emails without ellipses", () => {
+  const email = "deleted.user.0054@gmail.com";
+  const selector = new AccountSelector("Accounts", [{ id: "slot", label: email, value: "Active" }], { fg: (_c, text) => text }, () => 24, vi.fn());
+  const rows = selector.render(20);
+  expect(rows.join("").replace(/\s/g, "")).toContain(email);
+  expect(rows.join("")).not.toContain("deleted.user.0054@g…");
+});
+
 it("keeps a 100-row list bounded while paging, searching and resizing", () => {
   let height = 24;
   const done = vi.fn();

@@ -18,7 +18,9 @@ Run `/reload` once after installing or updating. Switching accounts never requir
 | `/logout` (native Pi) | Sign out; the extension removes the just-logged-out saved account |
 | `/switch-account` | Provider → saved account/API key → switch, notify, close |
 
-To change a label, run `/switch-account`, choose a provider, highlight an account, and press **Ctrl+E**. Enter the new label and press Enter to save. This updates only the saved label; it does not switch accounts or modify Pi's current credentials. Esc cancels. Labels must be unique within a provider. Pressing Enter on an account still switches immediately.
+The switch menu displays the full account email when available. OAuth email claims are read locally; emails returned by usage/profile services are saved after a successful lookup by the updated pi-better-usage extension. Names wrap on narrow terminals. Accounts with matching emails remain separate, with their saved slot names shown alongside their status to distinguish them.
+
+For accounts without an email, run `/switch-account`, choose a provider, highlight the account, and press **Ctrl+E** to configure its label. Email accounts do not offer label editing. This updates only the saved label; it does not switch accounts or modify Pi's current credentials. Esc cancels. Labels must be unique within a provider. Pressing Enter on an account still switches immediately.
 
 Login uses Pi’s built-in `/login`. New accounts are saved automatically; no label input is required.
 

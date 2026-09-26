@@ -1,5 +1,5 @@
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
-import { Input, getKeybindings, matchesKey, truncateToWidth, visibleWidth, fuzzyFilter, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { Input, getKeybindings, matchesKey, truncateToWidth, wrapTextWithAnsi, fuzzyFilter, type TuiMouseEvent } from "@earendil-works/pi-tui";
 
 export type Choice = { id: string; label: string; value?: string; description?: string; danger?: boolean; editId?: string };
 
@@ -11,6 +11,7 @@ export class AccountSelector {
   private start = 0;
   private visible = 8;
   private rowOffset = 2;
+  private lineItems: number[] = [];
   focused = true;
   constructor(private title: string, private choices: Choice[], private theme: Pick<Theme, "fg">, private height: () => number, private done: (id: string | undefined) => void) {
     this.filtered = choices;
@@ -21,14 +22,20 @@ export class AccountSelector {
     this.visible = Math.max(1, Math.min(10, this.height() - (compact ? 6 : 11)));
     this.start = Math.max(0, Math.min(this.selected - Math.floor(this.visible / 2), this.filtered.length - this.visible));
     this.input.focused = this.focused;
-    const rows = this.filtered.slice(this.start, this.start + this.visible).map((item, i) => {
-      const selected = this.start + i === this.selected;
-      const labelWidth = Math.min(38, Math.max(12, Math.floor(width * 0.5)));
-      const label = truncateToWidth(item.label, item.value ? labelWidth : width - 5);
-      const text = `${selected ? "→ " : "  "}${label}`;
-      const value = item.value ? " ".repeat(Math.max(2, labelWidth - visibleWidth(label) + 2)) + this.theme.fg("muted", item.value) : "";
-      return truncateToWidth(" " + this.theme.fg(selected ? "accent" : item.danger ? "error" : "text", text) + value, width);
+    const blocks = this.filtered.slice(this.start, this.start + this.visible).map((item, i) => {
+      const index = this.start + i;
+      const selected = index === this.selected;
+      const text = `${selected ? "→ " : "  "}${item.label}`;
+      const value = item.value ? "  " + this.theme.fg("muted", item.value) : "";
+      return { index, lines: wrapTextWithAnsi(" " + this.theme.fg(selected ? "accent" : item.danger ? "error" : "text", text) + value, Math.max(1, width)) };
     });
+    const budget = Math.max(1, this.height() - (compact ? 3 : 9));
+    while (blocks.length > 1 && blocks.reduce((sum, block) => sum + block.lines.length, 0) > budget) {
+      if (blocks[0]!.index < this.selected) blocks.shift();
+      else blocks.pop();
+    }
+    this.lineItems = blocks.flatMap(block => block.lines.map(() => block.index));
+    const rows = blocks.flatMap(block => block.lines);
     const border = this.theme.fg("border", "─".repeat(Math.max(1, width)));
     const heading = this.theme.fg("accent", truncateToWidth(` ${this.title.replace(/\n/g, " · ")}`, width));
     const header = compact ? [heading, ...this.input.render(width)] : [border, heading, this.theme.fg("muted", " Manage your accounts and API keys"), "", ...this.input.render(width), ""];
@@ -77,8 +84,8 @@ export class AccountSelector {
     }
     if (event.button === "left" && (event.type === "press" || event.type === "click")) {
       const row = event.y - this.rowOffset;
-      const index = this.start + row;
-      if (row >= 0 && row < this.visible && index < this.filtered.length) {
+      const index = this.lineItems[row];
+      if (row >= 0 && index !== undefined) {
         this.selected = index;
         if (event.type === "click") this.done(this.filtered[index]!.id);
         return { handled: true, render: true };

@@ -15,6 +15,18 @@ async function auth() { return JSON.parse(await readFile(join(dir, "auth.json"),
 beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), "pi-accounts-test-")); store = new AccountStore(dir); });
 afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 describe("persistent account storage", () => {
+  it("persists response emails and ignores stale or invalid metadata", async () => {
+    await login(a); await store.save("provider", "work");
+    await store.updateEmail("provider", "work", "work@example.com", a.key);
+    expect(await new AccountStore(dir).list("provider")).toEqual([{ name: "work", active: true, email: "work@example.com" }]);
+    await store.updateEmail("provider", "work", "wrong@example.com", b.key);
+    await store.updateEmail("provider", "work", "bad\u001b@example.com", a.key);
+    expect((await store.list("provider"))[0]?.email).toBe("work@example.com");
+    await store.saveLogin("provider", "work", b);
+    expect((await store.list("provider")).find(a => a.name === "work")?.email).toBeUndefined();
+    await store.updateEmail("provider", "work", "stale@example.com", a.key);
+    expect((await store.list("provider")).find(a => a.name === "work")?.email).toBeUndefined();
+  });
   it("persists across fresh instances and preserves other providers", async () => {
     await login(a); await store.save("provider", "work");
     await login(b); await store.save("provider", "personal");

@@ -19,6 +19,10 @@ export function createUsageService(store: AccountStore) {
   };
   const service = {
     listAccounts,
+    async updateAccountEmail(id: string, email: string, accessToken: string) {
+      const account = (await listAccounts()).find(a => a.id === id);
+      if (account && !id.startsWith("current:")) await store.updateEmail(account.providerId, account.label, email, accessToken);
+    },
     async getActiveAccount(provider: string, _ctx: Context) {
       return (await listAccounts()).find(a => a.providerId === provider && a.active);
     },

@@ -2,9 +2,10 @@ import { mkdir, readFile, rename, writeFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import lockfile from "proper-lockfile";
+import { credentialEmail, validEmail } from "./account-identity.ts";
 
 type Credential = Record<string, unknown> & { type: "oauth" | "api_key" };
-type Account = { provider: string; name: string; credential: Credential };
+type Account = { provider: string; name: string; credential: Credential; email?: string };
 type Pool = { version: 1; accounts: Account[] };
 
 export class AccountError extends Error {}
@@ -137,8 +138,24 @@ export class AccountStore {
       }, authData !== undefined);
     } finally { await release(); }
   }
-  async list(provider: string): Promise<{ name: string; active: boolean }[]> {
-    return this.transaction(async (auth, pool) => pool.accounts.filter(a => a.provider === provider).map(a => ({ name: a.name, active: credential(auth[provider]) && sameAccount(a.credential, auth[provider]) })));
+  async list(provider: string): Promise<{ name: string; active: boolean; email?: string }[]> {
+    return this.transaction(async (auth, pool) => pool.accounts.filter(a => a.provider === provider).map(a => {
+      const email = validEmail(a.email) ?? credentialEmail(a.credential);
+      return { name: a.name, active: credential(auth[provider]) && sameAccount(a.credential, auth[provider]), ...(email ? { email } : {}) };
+    }));
+  }
+  async updateEmail(provider: string, name: string, value: unknown, accessToken: string): Promise<void> {
+    const email = validEmail(value);
+    if (!email) return;
+    await this.transaction(async (_auth, pool, savePool) => {
+      const account = pool.accounts.find(a => a.provider === provider && a.name === name);
+      if (!account) return;
+      const storedToken = account.credential.type === "oauth" ? account.credential.access : account.credential.key;
+      // Ignore stale responses after a slot was replaced, removed or refreshed.
+      if (storedToken !== accessToken || account.email === email) return;
+      account.email = email;
+      await savePool();
+    });
   }
   async save(provider: string, name: string): Promise<void> {
     validateLabel(name);
@@ -253,7 +270,10 @@ export class AccountStore {
         }
       }
       const existing = pool.accounts.find(a => a.provider === provider && a.name === name);
-      if (existing) existing.credential = value;
+      if (existing) {
+        if (!sameAccount(existing.credential, value)) delete existing.email;
+        existing.credential = value;
+      }
       else pool.accounts.push({ provider, name, credential: value });
       await savePool();
       Object.defineProperty(auth, provider, { value, enumerable: true, configurable: true, writable: true });

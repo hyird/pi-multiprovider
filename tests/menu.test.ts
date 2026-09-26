@@ -75,3 +75,18 @@ it("cancelling label input leaves the label unchanged", async () => {
   expect(await store.list("test")).toEqual([{ name: "default", active: true }]);
   expect(ui.select).toHaveBeenCalledTimes(3);
 });
+
+it("shows OAuth email instead of the slot label and offers editing only without email", async () => {
+  const email = "long.account.name.for.switching@example.com";
+  const access = `x.${Buffer.from(JSON.stringify({ email })).toString("base64url")}.y`;
+  await store.add("test", "email-slot", { type: "oauth", access, refresh: "fixture", expires: 1 });
+  await store.add("test", "custom", { type: "api_key", key: "custom-key" });
+  const { ctx, pi, ui } = context(["Test Provider", email], []);
+  await runAccountCommand(pi, ctx, store);
+  expect(ui.select.mock.calls[1]?.[1]).toContain(email);
+  expect(ui.select.mock.calls[1]?.[1]).not.toContain("email-slot");
+  expect(ui.select.mock.calls[1]?.[1]).not.toContain(`Ctrl+E ${email}`);
+  expect(ui.select.mock.calls[1]?.[1]).toContain("Ctrl+E custom");
+  expect((await store.list("test")).find(a => a.active)?.name).toBe("email-slot");
+  expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining(email), "info");
+});

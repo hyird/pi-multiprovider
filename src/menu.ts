@@ -13,7 +13,8 @@ export async function activate(pi: ExtensionAPI, ctx: Context, store: AccountSto
     const result = await ctx.modelRegistry.refresh({ providers: [provider], allowNetwork: false });
     if (result.errors.size || result.aborted) throw new Error("Refresh incomplete");
     pi.events.emit("pi-accounts:changed", { provider, name });
-    ctx.ui.notify(`Switched permanently to ${ctx.modelRegistry.getProviderDisplayName(provider)} / ${name}. Effective on the next request.`, "info");
+    const account = (await store.list(provider)).find(a => a.name === name);
+    ctx.ui.notify(`Switched permanently to ${ctx.modelRegistry.getProviderDisplayName(provider)} / ${account?.email ?? name}. Effective on the next request.`, "info");
   } catch {
     ctx.ui.notify("Account selection was saved, but runtime refresh failed. Retry the switch before continuing.", "warning");
   }
@@ -28,7 +29,8 @@ export async function runAccountCommand(pi: ExtensionAPI, ctx: Context, store: A
   const choices = providerChoices(ctx, ids);
   for (const item of choices) {
     const saved = await store.list(item.id);
-    item.value = saved.find(a => a.active)?.name ?? (stored.includes(item.id) ? "Pi default" : "Not signed in");
+    const active = saved.find(a => a.active);
+    item.value = active?.email ?? active?.name ?? (stored.includes(item.id) ? "Pi default" : "Not signed in");
     item.description = `${saved.length} saved accounts · ${item.id}`;
   }
   const provider = explicitProvider ?? await selectMenu(ctx, `${title}  /  Providers`, choices);
@@ -39,9 +41,10 @@ export async function runAccountCommand(pi: ExtensionAPI, ctx: Context, store: A
   await store.ensureCurrent(provider);
   let accounts = await store.list(provider);
   const accountChoices = () => accounts.map(a => ({
-    id: `account:${a.name}`, label: a.name, value: a.active ? "Active" : "Saved",
-    description: "Switch permanently, then close this menu.",
-    editId: `label:${a.name}`,
+    id: `account:${a.name}`, label: a.email ?? a.name,
+    value: `${a.active ? "Active" : "Saved"}${a.email && accounts.filter(other => other.email === a.email).length > 1 ? ` · ${a.name}` : ""}`,
+    description: a.email ? `${a.email} · Switch permanently, then close this menu.` : "Switch permanently, then close this menu. Ctrl+E edits the label.",
+    editId: a.email ? undefined : `label:${a.name}`,
   }));
   let selection = explicitLabel === undefined
     ? await selectMenu(ctx, `${title}  /  ${displayName}`, accountChoices())
@@ -49,6 +52,7 @@ export async function runAccountCommand(pi: ExtensionAPI, ctx: Context, store: A
   while (selection?.startsWith("label:")) {
     const selected = selection.slice("label:".length);
     if (!accounts.some(a => a.name === selected)) throw new AccountError("Account not found.");
+    if (accounts.find(a => a.name === selected)?.email) throw new AccountError("This account uses its email as the display name.");
     const label = (await ctx.ui.input("Edit label", selected))?.trim();
     if (label) {
       if (!ctx.isIdle()) throw new AccountError("A request is running. Try again when it finishes.");

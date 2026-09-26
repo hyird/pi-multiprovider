@@ -49,6 +49,15 @@ it("notifies only listeners for the changed provider", () => {
   off(); service.changed("test"); expect(callback).toHaveBeenCalledOnce();
 });
 
+it("receives provider email metadata for exactly the resolved saved account", async () => {
+  await store.add("test", "work", { type: "api_key", key: "fixture-key" });
+  const service = createUsageService(store);
+  await service.updateAccountEmail("test/work", "work@example.com", "fixture-key");
+  expect((await store.list("test"))[0]?.email).toBe("work@example.com");
+  await service.updateAccountEmail("test/work", "other@example.com", "other-key");
+  expect((await store.list("test"))[0]?.email).toBe("work@example.com");
+});
+
 it("marks an unknown auth.json login as Unmanaged without importing it into the pool", async () => {
   await store.add("test", "saved", { type: "api_key", key: "saved-key" });
   await writeFile(join(dir, "auth.json"), JSON.stringify({ test: { type: "api_key", key: "external-key" } }));
