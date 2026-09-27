@@ -32,6 +32,12 @@ it("switches authentication in the existing Pi runtime without reload", async ()
     expect(reload).not.toHaveBeenCalled();
     expect(emit).toHaveBeenCalledWith("pi-accounts:changed", { provider: "openai", name: "work" });
     expect(notify).toHaveBeenCalledWith(expect.stringContaining("Effective on the next request"), "info");
+    await store.rename("openai", "work", "team  prod");
+    await handler("openai personal", { isIdle: () => true, hasUI: true, modelRegistry: registry, reload, ui: { notify } } as unknown as ExtensionCommandContext);
+    expect(await registry.getApiKeyForProvider("openai")).toBe("fixture-personal");
+    await handler("openai team  prod", { isIdle: () => true, hasUI: true, modelRegistry: registry, reload, ui: { notify } } as unknown as ExtensionCommandContext);
+    expect(await registry.getApiKeyForProvider("openai")).toBe("fixture-work");
+    expect(emit).toHaveBeenCalledWith("pi-accounts:changed", { provider: "openai", name: "team  prod" });
   } finally {
     if (oldDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
     else process.env.PI_CODING_AGENT_DIR = oldDir;

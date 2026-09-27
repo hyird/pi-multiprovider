@@ -32,7 +32,7 @@ You can specify a provider ID and a label directly:
 
 To remove a saved account, select it with `/switch-account`, then use native `/logout` for its provider. While running, the extension detects the removed current login and deletes matching saved aliases. Other accounts remain available. `/switch-account` only switches and renames accounts; it has no delete action.
 
-Switching writes the selected credentials to the global `auth.json`, refreshes Pi's existing runtime, displays a confirmation, and closes the menu. The choice persists across new sessions and restarts until you explicitly change it. No automatic rotation or failover is performed. Account switching does not change your model; choose another provider's model using `/model`.
+Switching writes changed credentials to the global `auth.json`, refreshes Pi's existing runtime, displays a confirmation, and closes the menu. Selecting the already active credential skips unchanged auth-file writes while still refreshing Pi's runtime. When several labels share one credential, the selected label becomes the preferred display label. If runtime refresh fails after a saved switch, account listeners are still notified so old usage is cleared; retry the switch before continuing. The choice persists across new sessions and restarts until you explicitly change it. No automatic rotation or failover is performed. Account switching does not change your model; choose another provider's model using `/model`.
 
 ## Interface
 
@@ -47,7 +47,9 @@ Pi 0.87 does not allow extensions to replace or hide its built-in `/login` and `
 - Native `/login` replaces Pi's current credential. The extension automatically synchronizes it into the account pool: recognized accounts retain their labels and receive updated tokens; new or unrecognizable accounts get an unused `default`, `default-2`, etc. label. Rename them with `/switch-account`. New accounts produce one notification, and account/usage listeners refresh after synchronization.
 - Native `/logout` clears the current Pi login. While the extension is running, synchronization removes that account's saved records, including matching aliases, and preserves other accounts. Logouts while the extension is stopped are not cleaned up at startup.
 
-Synchronization runs at session startup and watches the agent directory for atomic replacements of `auth.json` and `accounts.json`. Changes are debounced, with a five-second fallback for missed events or temporary errors. Repeated events and the extension's own writes do not repeat change notifications. A previously observed provider entry disappearing from a valid auth file is treated as logout; startup, missing files and corrupt JSON do not delete saved accounts. Synchronization only updates the account pool; it never restores a logged-out credential. Usage queries do not import accounts. A native login that is overwritten again before synchronization cannot be recovered.
+Synchronization runs at session startup and watches the agent directory for atomic replacements of `auth.json` and `accounts.json`. Changes are debounced, and bursts during a running pass coalesce into one additional pass. A five-second metadata check catches missed events, retries temporary errors, and reopens an errored or closed watcher; unchanged files get a full reconciliation once per minute. Repeated events and the extension's own writes do not repeat change notifications. A previously observed provider entry disappearing from a valid auth file is treated as logout; startup, missing files and corrupt JSON do not delete saved accounts. Synchronization only updates the account pool; it never restores a logged-out credential. Usage queries do not import accounts. A native login that is overwritten again before synchronization cannot be recovered.
+
+OMP child sessions use Pi's current credentials but do not start another account watcher, synchronization timer, or switch menu. The parent session owns account synchronization.
 
 The old `/accounts` command is no longer registered.
 
@@ -63,9 +65,9 @@ Environment-only authentication, CLI runtime overrides, and independent account 
 
 With the latest [pi-better-usage](https://github.com/hyird/pi-better-usage), switching accounts immediately clears the old usage and refreshes the footer with the new account's label. `/usage` reports every saved account, including labels, per-account failures, and a `[Current]` marker based on `auth.json`.
 
-The account in `auth.json` is authoritative. If it does not match any saved account, usage shows a separate **Unmanaged [Current]** entry. Reading usage does not import it into the account pool. Switching explicitly still preserves the outgoing credentials before replacing them.
+The account in `auth.json` is authoritative. If it does not match any saved account, usage shows a separate **Unmanaged [Current]** entry. Reading usage does not import it into the account pool. Switching explicitly still preserves the outgoing credentials before replacing them. A different runtime credential is not reported under a saved OpenAI Codex or xAI OAuth account, or under an OpenCode Go account with a literal key.
 
-Inactive OAuth tokens are refreshed in the account pool without activating those accounts. Unsupported providers and credential types are listed as unavailable. Inactive command-based API keys cannot be queried in isolation.
+Inactive OAuth tokens are refreshed in the account pool without activating those accounts. A refresh with a conflicting known account ID or user identity is rejected before writing credentials. Concurrent refreshes of the same account are serialized; a cancelled request waiting for another refresh exits promptly without letting later requests overtake that refresh. A cancelled active-account lookup also stops waiting for Pi's authentication response. Unsupported providers and credential types are listed as unavailable. Inactive command-based API keys cannot be queried in isolation.
 
 The extension publishes `pi-accounts:service` and `pi-accounts:changed` for usage integration. No credential data is included in change notifications.
 
