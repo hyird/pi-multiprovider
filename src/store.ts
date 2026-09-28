@@ -314,9 +314,13 @@ export class AccountStore {
       },
     });
     try {
-      const authData = await readJson(authPath, undefined);
+      // Both snapshots share the same lock; read them together to shorten the
+      // critical section used by login, switching, and background usage lookups.
+      const [authData, pool] = await Promise.all([
+        readJson(authPath, undefined),
+        readJson(poolPath, { version: 1, accounts: [] }),
+      ]);
       const auth = authData === undefined ? {} : authData;
-      const pool = await readJson(poolPath, { version: 1, accounts: [] });
       if (
         !record(auth) ||
         !record(pool) ||
