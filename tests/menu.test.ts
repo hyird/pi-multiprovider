@@ -1,3 +1,4 @@
+import { seedAccount } from "./fixtures/accounts.ts";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -67,7 +68,7 @@ function context(selections: (string | undefined)[], inputs: (string | undefined
 
 it("switches, notifies and exits without opening another menu", async () => {
   await store.ensureCurrent("test");
-  await store.add("test", "work", { type: "api_key", key: "work-key" });
+  await seedAccount(store, "test", "work", { type: "api_key", key: "work-key" });
   const { ctx, pi, ui } = context(["Test Provider", "work"], []);
   await runAccountCommand(pi, ctx, store);
   expect(ui.select).toHaveBeenCalledTimes(2);
@@ -78,7 +79,7 @@ it("switches, notifies and exits without opening another menu", async () => {
 
 it("notifies account consumers after a committed switch even when registry refresh fails", async () => {
   await store.ensureCurrent("test");
-  await store.add("test", "work", { type: "api_key", key: "work-key" });
+  await seedAccount(store, "test", "work", { type: "api_key", key: "work-key" });
   const { ctx, pi, ui } = context(["Test Provider", "work"], []);
   let refreshFinished = false;
   vi.mocked(ctx.modelRegistry.refresh).mockImplementation(async () => {
@@ -117,7 +118,7 @@ it("marks a repeated switch for an explicit usage refresh", async () => {
 
 it("marks a preferred-label switch as metadata for usage consumers", async () => {
   await store.ensureCurrent("test");
-  await store.save("test", "alias");
+  await seedAccount(store, "test", "alias");
   const { ctx, pi } = context(["Test Provider", "alias"], []);
   await runAccountCommand(pi, ctx, store);
   expect(pi.events.emit).toHaveBeenCalledWith("pi-accounts:changed", {
@@ -131,7 +132,7 @@ it("marks a preferred-label switch as metadata for usage consumers", async () =>
 
 it("lists saved providers in the switch menu", async () => {
   await store.ensureCurrent("test");
-  await store.add("new-provider", "spare", { type: "api_key", key: "spare-key" });
+  await seedAccount(store, "new-provider", "spare", { type: "api_key", key: "spare-key" });
   const { ctx, pi, ui } = context([undefined], []);
   await runAccountCommand(pi, ctx, store);
   expect(ui.select.mock.calls[0]?.[1]).toEqual(["New Provider", "Test Provider"]);
@@ -139,7 +140,7 @@ it("lists saved providers in the switch menu", async () => {
 
 it("edits a label without switching or changing Pi credentials", async () => {
   await store.ensureCurrent("test");
-  await store.add("test", "spare", { type: "api_key", key: "spare-key" });
+  await seedAccount(store, "test", "spare", { type: "api_key", key: "spare-key" });
   const before = await readFile(join(dir, "auth.json"), "utf8");
   const { ctx, pi, ui } = context(["Test Provider", "Ctrl+E spare"], ["personal"]);
   await runAccountCommand(pi, ctx, store);
@@ -170,8 +171,8 @@ it("cancelling label input leaves the label unchanged", async () => {
 it("shows OAuth email instead of the slot label and offers editing only without email", async () => {
   const email = "long.account.name.for.switching@example.com";
   const access = `x.${Buffer.from(JSON.stringify({ email })).toString("base64url")}.y`;
-  await store.add("test", "email-slot", { type: "oauth", access, refresh: "fixture", expires: 1 });
-  await store.add("test", "custom", { type: "api_key", key: "custom-key" });
+  await seedAccount(store, "test", "email-slot", { type: "oauth", access, refresh: "fixture", expires: 1 });
+  await seedAccount(store, "test", "custom", { type: "api_key", key: "custom-key" });
   const list = vi
     .spyOn(store, "list")
     .mockImplementationOnce(AccountStore.prototype.list.bind(store));

@@ -1,3 +1,4 @@
+import { seedAccount, replaceAccount } from "./fixtures/accounts.ts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -32,7 +33,7 @@ afterEach(async () => {
 });
 describe("persistent account storage", () => {
   it("rejects malformed Unicode labels before they can break account IDs", async () => {
-    await expect(store.add("provider", "\ud800", a)).rejects.toThrow("Labels must contain");
+    await expect(store.rename("provider", "work", "\ud800")).rejects.toThrow("Labels must contain");
     await expect(store.listAccounts()).resolves.toEqual([]);
     await writeFile(
       join(dir, "accounts.json"),
@@ -44,14 +45,15 @@ describe("persistent account storage", () => {
     await expect(store.listAccounts()).rejects.toThrow("Invalid account storage format");
   });
   it("rejects invisible and direction-control labels without blocking readable Unicode", async () => {
+    await seedAccount(store, "provider", "work", a);
     for (const label of ["\u200b", "\u00ad", "wo\u200brk", "work\u2060", "\u202eHidden", "\u0085"])
-      await expect(store.add("provider", label, a)).rejects.toThrow("Labels must contain");
-    await expect(store.add("provider", "工作 👩‍💻", a)).resolves.toBeUndefined();
+      await expect(store.rename("provider", "work", label)).rejects.toThrow("Labels must contain");
+    await expect(store.rename("provider", "work", "工作 👩‍💻")).resolves.toBeUndefined();
     expect((await store.list("provider"))[0]?.name).toBe("工作 👩‍💻");
   });
   it("persists response emails and ignores stale or invalid metadata", async () => {
     await login(a);
-    await store.save("provider", "work");
+    await seedAccount(store, "provider", "work");
     await store.updateEmail("provider", "work", "work@example.com", a.key);
     expect(await new AccountStore(dir).list("provider")).toEqual([
       { name: "work", active: true, email: "work@example.com" },
@@ -59,7 +61,7 @@ describe("persistent account storage", () => {
     await store.updateEmail("provider", "work", "wrong@example.com", b.key);
     await store.updateEmail("provider", "work", "bad\u001b@example.com", a.key);
     expect((await store.list("provider"))[0]?.email).toBe("work@example.com");
-    await store.saveLogin("provider", "work", b);
+    await replaceAccount(store, "provider", "work", b);
     expect((await store.list("provider")).find((a) => a.name === "work")?.email).toBeUndefined();
     await store.updateEmail("provider", "work", "stale@example.com", a.key);
     expect((await store.list("provider")).find((a) => a.name === "work")?.email).toBeUndefined();
@@ -68,7 +70,7 @@ describe("persistent account storage", () => {
     const old = oauth("alice", 1);
     const refreshed = oauth("alice", 2);
     await login(old);
-    await store.save("provider", "work");
+    await seedAccount(store, "provider", "work");
     await login(refreshed);
     await store.updateEmail("provider", "work", "alice@example.com", refreshed.access);
     expect((await store.list("provider"))[0]?.email).toBe("alice@example.com");
@@ -87,11 +89,11 @@ describe("persistent account storage", () => {
       accountId: "org-a",
     };
     await login(original);
-    await store.save("provider", "work");
+    await seedAccount(store, "provider", "work");
     const revision = credentialRevision(original);
     await store.updateEmail("provider", "work", "old@example.com", original.access, revision);
     expect((await store.list("provider"))[0]?.email).toBe("old@example.com");
-    await store.saveLogin("provider", "work", {
+    await replaceAccount(store, "provider", "work", {
       ...original,
       refresh: "refresh-b",
       accountId: "org-b",
@@ -101,9 +103,9 @@ describe("persistent account storage", () => {
   });
   it("persists across fresh instances and preserves other providers", async () => {
     await login(a);
-    await store.save("provider", "work");
+    await seedAccount(store, "provider", "work");
     await login(b);
-    await store.save("provider", "personal");
+    await seedAccount(store, "provider", "personal");
     await store.use("provider", "work");
     expect(await auth()).toEqual({ provider: a, other: a });
     expect(await new AccountStore(dir).list("provider")).toEqual([
@@ -113,7 +115,7 @@ describe("persistent account storage", () => {
   });
   it("does not rewrite credential files when selecting the unchanged account", async () => {
     await login(a);
-    await store.save("provider", "work");
+    await seedAccount(store, "provider", "work");
     const files = [join(dir, "auth.json"), join(dir, "accounts.json")];
     const revisions = async () =>
       Promise.all(
@@ -128,8 +130,8 @@ describe("persistent account storage", () => {
   });
   it("persists the chosen label when saved aliases share one credential", async () => {
     await login(a);
-    await store.save("provider", "first");
-    await store.save("provider", "alias");
+    await seedAccount(store, "provider", "first");
+    await seedAccount(store, "provider", "alias");
     const beforeAuth = await readFile(join(dir, "auth.json"), "utf8");
     expect((await store.usageAccount("provider"))?.name).toBe("first");
 
@@ -151,9 +153,9 @@ describe("persistent account storage", () => {
   });
   it("shows the chosen inactive alias after switching to its credential", async () => {
     await login(a);
-    await store.save("provider", "work");
-    await store.add("provider", "personal", b);
-    await store.add("provider", "personal-alias", b);
+    await seedAccount(store, "provider", "work");
+    await seedAccount(store, "provider", "personal", b);
+    await seedAccount(store, "provider", "personal-alias", b);
 
     expect(await store.use("provider", "personal-alias")).toEqual({
       credentialChanged: true,
@@ -164,7 +166,7 @@ describe("persistent account storage", () => {
   });
   it("backs up an unsaved login before switching", async () => {
     await login(a);
-    await store.save("provider", "work");
+    await seedAccount(store, "provider", "work");
     await login(b);
     await store.use("provider", "work");
     const backup = (await store.list("provider")).find((x) => x.name.startsWith("backup-"));
@@ -174,9 +176,9 @@ describe("persistent account storage", () => {
   });
   it("keeps rotated OAuth tokens and separates users in the same organization", async () => {
     await login(oauth("alice", 1));
-    await store.save("provider", "alice");
+    await seedAccount(store, "provider", "alice");
     await login(oauth("bob", 1));
-    await store.save("provider", "bob");
+    await seedAccount(store, "provider", "bob");
     await store.use("provider", "alice");
     await login(oauth("alice", 2));
     await store.use("provider", "bob");
@@ -186,7 +188,7 @@ describe("persistent account storage", () => {
   it("rejects an OAuth refresh that changes the known user without changing either saved credential", async () => {
     const original = oauth("alice", 1);
     await login(original);
-    await store.save("provider", "work");
+    await seedAccount(store, "provider", "work");
     const savedBefore = await readFile(join(dir, "accounts.json"), "utf8");
     for (const different of [oauth("bob", 2), { ...oauth("alice", 2), accountId: "another-org" }]) {
       await expect(
@@ -203,7 +205,7 @@ describe("persistent account storage", () => {
     "rejects an OAuth refresh with non-finite expiry %s before writing account storage",
     async (expires) => {
       const original = oauth("alice", 1);
-      await store.add("provider", "inactive", original);
+      await seedAccount(store, "provider", "inactive", original);
       const before = await readFile(join(dir, "accounts.json"), "utf8");
       await expect(
         store.withAccount("provider", "inactive", async () => ({
@@ -245,42 +247,27 @@ describe("persistent account storage", () => {
       expires: 1,
       accountId: "account-a",
     };
-    await store.add("provider", "work", stored);
+    await seedAccount(store, "provider", "work", stored);
     await expect(
       store.withAccount("provider", "work", async (credential) => ({ credential, result: "ok" })),
     ).resolves.toBe("ok");
   });
   it("never reverts refreshed tokens when choosing the active account", async () => {
     await login(oauth("alice", 1));
-    await store.save("provider", "alice");
+    await seedAccount(store, "provider", "alice");
     await login(oauth("alice", 2));
     await store.use("provider", "alice");
     expect((await auth()).provider.refresh).toBe("refresh-alice-2");
   });
-  it("refuses to overwrite a name owned by another login", async () => {
-    await login(a);
-    await store.save("provider", "work");
-    await login(b);
-    await expect(store.save("provider", "work")).rejects.toThrow("another account");
-    expect((await auth()).provider).toEqual(b);
-  });
   it("does not overwrite corrupt storage or expose its contents", async () => {
     await login(a);
-    await store.save("provider", "work");
+    await seedAccount(store, "provider", "work");
     await writeFile(join(dir, "accounts.json"), "secret-invalid-json");
     await expect(store.use("provider", "work")).rejects.toThrow("JSON is invalid");
     expect((await auth()).provider).toEqual(a);
     expect(await readFile(join(dir, "accounts.json"), "utf8")).toBe("secret-invalid-json");
   });
-  it("serializes concurrent saves without losing entries", async () => {
-    await login(a);
-    await Promise.all(
-      Array.from({ length: 5 }, (_, i) => new AccountStore(dir).save("provider", `alias-${i}`)),
-    );
-    expect(await store.list("provider")).toHaveLength(5);
-  });
-  it("fails safely for missing accounts and missing persisted credentials", async () => {
-    await expect(store.save("provider", "work")).rejects.toThrow("No stored");
+  it("fails safely when switching to a missing account", async () => {
     await login(a);
     await expect(store.use("provider", "missing")).rejects.toThrow("not found");
     expect((await auth()).provider).toEqual(a);
@@ -288,13 +275,13 @@ describe("persistent account storage", () => {
   it("never executes configured API key commands", async () => {
     const configured = { type: "api_key", key: "!do-not-execute", env: { EXAMPLE: "fixture" } };
     await login(configured);
-    await store.save("provider", "command");
+    await seedAccount(store, "provider", "command");
     await login(b);
     await store.use("provider", "command");
     expect((await auth()).provider).toEqual(configured);
   });
   it("keeps storage responsive during slow refresh and rejects a replaced account", async () => {
-    await store.add("provider", "inactive", a);
+    await seedAccount(store, "provider", "inactive", a);
     let started!: () => void;
     const entered = new Promise<void>((resolve) => {
       started = resolve;
@@ -317,7 +304,7 @@ describe("persistent account storage", () => {
         ),
       ]);
       expect(list).toHaveLength(1);
-      await store.saveLogin("provider", "inactive", b);
+      await replaceAccount(store, "provider", "inactive", b);
     } finally {
       finish();
     }
@@ -328,8 +315,8 @@ describe("persistent account storage", () => {
   it("serializes refreshes of one inactive slot without blocking other accounts", async () => {
     const old = oauth("alice", 1);
     const refreshed = oauth("alice", 2);
-    await store.add("provider", "inactive", old);
-    await store.add("provider", "other", b);
+    await seedAccount(store, "provider", "inactive", old);
+    await seedAccount(store, "provider", "other", b);
     let started!: () => void;
     const entered = new Promise<void>((resolve) => {
       started = resolve;
@@ -381,8 +368,8 @@ describe("persistent account storage", () => {
       refresh: "opaque-refresh-2",
       expires: 2,
     };
-    await store.add("provider", "work", original);
-    await store.add("provider", "alias", original);
+    await seedAccount(store, "provider", "work", original);
+    await seedAccount(store, "provider", "alias", original);
     let entered!: () => void;
     const started = new Promise<void>((resolve) => {
       entered = resolve;
@@ -414,8 +401,8 @@ describe("persistent account storage", () => {
   it("keeps later requests behind a queued alias after its credential rotates", async () => {
     const original = oauth("alice", 1);
     const refreshed = oauth("alice", 2);
-    await store.add("provider", "work", original);
-    await store.add("provider", "alias", original);
+    await seedAccount(store, "provider", "work", original);
+    await seedAccount(store, "provider", "alias", original);
     let firstEntered!: () => void;
     const firstStarted = new Promise<void>((resolve) => {
       firstEntered = resolve;
@@ -466,7 +453,7 @@ describe("persistent account storage", () => {
     expect(await third).toBe("third");
   });
   it("cancels a queued lookup without letting a later lookup overtake the active refresh", async () => {
-    await store.add("provider", "inactive", a);
+    await seedAccount(store, "provider", "inactive", a);
     let entered!: () => void;
     const running = new Promise<void>((resolve) => {
       entered = resolve;

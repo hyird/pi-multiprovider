@@ -1,3 +1,4 @@
+import { seedAccount } from "./fixtures/accounts.ts";
 import { mkdtemp, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import type { FSWatcher } from "node:fs";
 import { EventEmitter } from "node:events";
@@ -80,7 +81,7 @@ it("marks the provider changed when a saved display email changes", async () => 
 it("treats selecting another label for the same credential as display metadata", async () => {
   await login({ test: key("shared") });
   await store.reconcileCurrentAccounts();
-  await store.save("test", "alias");
+  await seedAccount(store, "test", "alias");
   await store.reconcileCurrentAccounts();
 
   await store.use("test", "alias");
@@ -94,7 +95,7 @@ it("treats selecting another label for the same credential as display metadata",
 it("treats saved-label changes and duplicate aliases as metadata", async () => {
   await login({ test: key("active") });
   await store.reconcileCurrentAccounts();
-  await store.add("test", "spare", key("inactive"));
+  await seedAccount(store, "test", "spare", key("inactive"));
   await store.reconcileCurrentAccounts();
 
   await store.rename("test", "default", "work");
@@ -109,7 +110,7 @@ it("treats saved-label changes and duplicate aliases as metadata", async () => {
     added: [],
     metadataChanged: ["test"],
   });
-  await store.save("test", "alias");
+  await seedAccount(store, "test", "alias");
   expect(await store.reconcileCurrentAccounts()).toEqual({
     changed: ["test"],
     added: [],
@@ -120,7 +121,7 @@ it("treats saved-label changes and duplicate aliases as metadata", async () => {
 it("announces an inactive account credential refresh without changing the active login", async () => {
   await login({ test: key("active") });
   await store.reconcileCurrentAccounts();
-  await store.add("test", "inactive", {
+  await seedAccount(store, "test", "inactive", {
     type: "oauth",
     access: "old-access",
     refresh: "same-refresh",
@@ -172,7 +173,7 @@ it("updates recognizable OAuth tokens without overwriting ambiguous identities",
     expires: version,
   });
   await login({ test: oauth(1) });
-  await store.save("test", "work");
+  await seedAccount(store, "test", "work");
   await store.reconcileCurrentAccounts();
   await login({ test: oauth(2) });
   expect(await store.reconcileCurrentAccounts()).toEqual({ changed: ["test"], added: [] });
@@ -317,8 +318,8 @@ it("remembers the last valid login through an unsupported interim auth value", a
 it("deletes the account selected immediately before logout, including aliases, and preserves other providers", async () => {
   await login({ test: key("a"), other: key("other") });
   await store.reconcileCurrentAccounts();
-  await store.add("test", "work", key("b"));
-  await store.add("test", "work-alias", key("b"));
+  await seedAccount(store, "test", "work", key("b"));
+  await seedAccount(store, "test", "work-alias", key("b"));
   await store.use("test", "work");
   // No reconciliation between switching and native logout.
   await login({ other: key("other") });

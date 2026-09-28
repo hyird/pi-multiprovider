@@ -415,22 +415,6 @@ export class AccountStore {
       await savePool();
     });
   }
-  async save(provider: string, name: string): Promise<void> {
-    validateLabel(name);
-    await this.transaction(async (auth, pool, savePool) => {
-      const current = auth[provider];
-      if (!credential(current))
-        throw new AccountError(
-          `No stored credentials for ${provider}. Run /login ${provider} first.`,
-        );
-      const existing = pool.accounts.find((a) => a.provider === provider && a.name === name);
-      if (existing && !sameAccount(existing.credential, current))
-        throw new AccountError("This name belongs to another account. Choose a different name.");
-      if (existing) existing.credential = current;
-      else pool.accounts.push({ provider, name, credential: current });
-      await savePool();
-    });
-  }
   async menuSnapshot() {
     return this.transaction(async (auth, pool) => ({
       providers: [...new Set([...Object.keys(auth), ...pool.accounts.map((a) => a.provider)])],
@@ -645,7 +629,7 @@ export class AccountStore {
       return next.result;
     });
   }
-  async ensureCurrent(provider: string, saveUnknown = true): Promise<void> {
+  async ensureCurrent(provider: string): Promise<void> {
     await this.transaction(async (auth, pool, savePool) => {
       const current = auth[provider];
       if (!credential(current)) return;
@@ -660,57 +644,12 @@ export class AccountStore {
         }
         return;
       }
-      if (!saveUnknown) return;
       let name = "default";
       let suffix = 2;
       while (pool.accounts.some((a) => a.provider === provider && a.name === name))
         name = `default-${suffix++}`;
       pool.accounts.push({ provider, name, credential: current });
       await savePool();
-    });
-  }
-  async add(provider: string, name: string, value: unknown): Promise<void> {
-    validateLabel(name);
-    if (!credential(value))
-      throw new AccountError("Login returned an unsupported credential format. Nothing was saved.");
-    await this.transaction(async (_auth, pool, savePool) => {
-      if (pool.accounts.some((a) => a.provider === provider && a.name === name))
-        throw new AccountError("This label already exists. Choose a different label.");
-      pool.accounts.push({ provider, name, credential: value });
-      await savePool();
-    });
-  }
-  async saveLogin(provider: string, name: string, value: unknown): Promise<void> {
-    validateLabel(name);
-    if (!credential(value))
-      throw new AccountError("Login returned an unsupported credential format.");
-    await this.transaction(async (auth, pool, savePool, saveAuth) => {
-      const current = auth[provider];
-      if (credential(current)) {
-        const matches = pool.accounts.filter(
-          (a) => a.provider === provider && sameAccount(a.credential, current),
-        );
-        for (const account of matches) account.credential = current;
-        if (
-          !matches.length ||
-          (matches.every((a) => a.name === name) && !sameAccount(current, value))
-        ) {
-          pool.accounts.push({ provider, name: `backup-${randomUUID()}`, credential: current });
-        }
-      }
-      const existing = pool.accounts.find((a) => a.provider === provider && a.name === name);
-      if (existing) {
-        if (!sameAccount(existing.credential, value)) delete existing.email;
-        existing.credential = value;
-      } else pool.accounts.push({ provider, name, credential: value });
-      await savePool();
-      Object.defineProperty(auth, provider, {
-        value,
-        enumerable: true,
-        configurable: true,
-        writable: true,
-      });
-      await saveAuth();
     });
   }
   async rename(provider: string, name: string, label: string): Promise<void> {

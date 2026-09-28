@@ -1,3 +1,4 @@
+import { seedAccount } from "./fixtures/accounts.ts";
 import { expect, it, vi } from "vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -21,9 +22,9 @@ it("switches authentication in the existing Pi runtime without reload", async ()
       writeFile(path, JSON.stringify({ openai: { type: "api_key", key } }));
     const store = new AccountStore(dir);
     await login("fixture-work");
-    await store.save("openai", "work");
+    await seedAccount(store, "openai", "work");
     await login("fixture-personal");
-    await store.save("openai", "personal");
+    await seedAccount(store, "openai", "personal");
     const runtime = await ModelRuntime.create({
       authPath: path,
       modelsPath: null,

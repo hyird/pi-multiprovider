@@ -1,3 +1,4 @@
+import { seedAccount, replaceAccount } from "./fixtures/accounts.ts";
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,8 +27,8 @@ it("uses auth.json as current identity and reads inactive keys without changing 
     join(dir, "auth.json"),
     JSON.stringify({ test: { type: "api_key", key: "current-key" } }),
   );
-  await store.save("test", "work");
-  await store.add("test", "personal", { type: "api_key", key: "other-key" });
+  await seedAccount(store, "test", "work");
+  await seedAccount(store, "test", "personal", { type: "api_key", key: "other-key" });
   const service = createUsageService(store);
   const ctx = {
     modelRegistry: {
@@ -66,8 +67,8 @@ it("resolves bearer headers regardless of capitalization", async () => {
     join(dir, "auth.json"),
     JSON.stringify({ test: { type: "api_key", key: "current-key" } }),
   );
-  await store.save("test", "current");
-  await store.add("test", "inactive", { type: "api_key", key: "inactive-key" });
+  await seedAccount(store, "test", "current");
+  await seedAccount(store, "test", "inactive", { type: "api_key", key: "inactive-key" });
   const ctx = {
     modelRegistry: {
       getProvider: () => ({
@@ -98,7 +99,7 @@ it("does not attribute a runtime OpenCode Go key to a different saved account", 
     join(dir, "auth.json"),
     JSON.stringify({ "opencode-go": { type: "api_key", key: "saved-key" } }),
   );
-  await store.save("opencode-go", "work");
+  await seedAccount(store, "opencode-go", "work");
   const ctx = {
     modelRegistry: { getProviderAuth: async () => ({ auth: { apiKey: "runtime-key" } }) },
   } as unknown as ExtensionContext;
@@ -121,7 +122,7 @@ it.each(["openai-codex", "xai"])(
         },
       }),
     );
-    await store.save(provider, "work");
+    await seedAccount(store, provider, "work");
     const ctx = {
       modelRegistry: { getProviderAuth: async () => ({ auth: { apiKey: "runtime-access" } }) },
     } as unknown as ExtensionContext;
@@ -142,7 +143,7 @@ it("does not demand raw token equality from an extension OAuth provider", async 
       },
     }),
   );
-  await store.save("xai-oauth", "work");
+  await seedAccount(store, "xai-oauth", "work");
   const ctx = {
     modelRegistry: {
       getProviderAuth: async () => ({ auth: { apiKey: "provider-transformed-access" } }),
@@ -155,7 +156,7 @@ it("does not demand raw token equality from an extension OAuth provider", async 
   const resolved = await createUsageService(store).resolveAccountAuth("xai-oauth/work", ctx);
   await resolved.updateEmail?.("work@example.com");
   expect((await store.list("xai-oauth"))[0]?.email).toBe("work@example.com");
-  await store.saveLogin("xai-oauth", "work", {
+  await replaceAccount(store, "xai-oauth", "work", {
     type: "oauth",
     access: "another-account-access",
     refresh: "another-account-refresh",
@@ -169,7 +170,7 @@ it("allows Pi to expand a configured OpenCode Go key before resolving it", async
     join(dir, "auth.json"),
     JSON.stringify({ "opencode-go": { type: "api_key", key: "$OPENCODE_API_KEY" } }),
   );
-  await store.save("opencode-go", "work");
+  await seedAccount(store, "opencode-go", "work");
   const ctx = {
     modelRegistry: { getProviderAuth: async () => ({ auth: { apiKey: "resolved-key" } }) },
   } as unknown as ExtensionContext;
@@ -185,8 +186,8 @@ it("does not report a newly selected account under the previous account ID", asy
     join(dir, "auth.json"),
     JSON.stringify({ test: { type: "api_key", key: "work-key" } }),
   );
-  await store.save("test", "work");
-  await store.add("test", "personal", { type: "api_key", key: "personal-key" });
+  await seedAccount(store, "test", "work");
+  await seedAccount(store, "test", "personal", { type: "api_key", key: "personal-key" });
   let entered!: () => void;
   const resolving = new Promise<void>((resolve) => {
     entered = resolve;
@@ -220,7 +221,7 @@ it("rejects an old token when a new login replaces the same account label", asyn
     join(dir, "auth.json"),
     JSON.stringify({ test: { type: "api_key", key: "old-key" } }),
   );
-  await store.save("test", "work");
+  await seedAccount(store, "test", "work");
   let entered!: () => void;
   const resolving = new Promise<void>((resolve) => {
     entered = resolve;
@@ -242,7 +243,7 @@ it("rejects an old token when a new login replaces the same account label", asyn
   const pending = service.resolveAccountAuth("test/work", ctx);
   await resolving;
   try {
-    await store.saveLogin("test", "work", { type: "api_key", key: "new-key" });
+    await replaceAccount(store, "test", "work", { type: "api_key", key: "new-key" });
   } finally {
     resume();
   }
@@ -271,7 +272,7 @@ it("accepts a token refreshed by the active OAuth provider during resolution", a
     expires: Date.now() + 3600000,
   };
   await writeFile(join(dir, "auth.json"), JSON.stringify({ "openai-codex": old }));
-  await store.save("openai-codex", "work");
+  await seedAccount(store, "openai-codex", "work");
   const ctx = {
     modelRegistry: {
       getProviderAuth: async () => {
@@ -301,11 +302,11 @@ it.each(["saved", "active"] as const)(
       accountId: "org-a",
     };
     await writeFile(join(dir, "auth.json"), JSON.stringify({ "openai-codex": original }));
-    await store.save("openai-codex", "work");
+    await seedAccount(store, "openai-codex", "work");
     const ctx = {
       modelRegistry: {
         getProviderAuth: async () => {
-          await store.saveLogin("openai-codex", "work", {
+          await replaceAccount(store, "openai-codex", "work", {
             ...original,
             refresh: "refresh-b",
             accountId: "org-b",
@@ -325,12 +326,12 @@ it.each(["saved", "active"] as const)(
 it("returns the final credential type when the same active slot changes during resolution", async () => {
   const old = { type: "oauth", access: "old-token", refresh: "old-refresh", expires: 1 };
   await writeFile(join(dir, "auth.json"), JSON.stringify({ test: old }));
-  await store.save("test", "work");
+  await seedAccount(store, "test", "work");
   const next = { type: "api_key", key: "new-key" };
   const ctx = {
     modelRegistry: {
       getProviderAuth: async () => {
-        await store.saveLogin("test", "work", next);
+        await replaceAccount(store, "test", "work", next);
         return { auth: { apiKey: next.key } };
       },
     },
@@ -347,8 +348,8 @@ it("resolves every active alias with its own label", async () => {
     join(dir, "auth.json"),
     JSON.stringify({ test: { type: "api_key", key: "shared-key" } }),
   );
-  await store.save("test", "first");
-  await store.save("test", "alias");
+  await seedAccount(store, "test", "first");
+  await seedAccount(store, "test", "alias");
   await store.use("test", "alias");
   const ctx = {
     modelRegistry: { getProviderAuth: async () => ({ auth: { apiKey: "shared-key" } }) },
@@ -370,7 +371,7 @@ it.each(["authentication", "saved lookup", "current lookup", "identity verificat
       join(dir, "auth.json"),
       JSON.stringify({ test: { type: "api_key", key: "current-key" } }),
     );
-    await store.save("test", "work");
+    await seedAccount(store, "test", "work");
     let entered!: () => void;
     const started = new Promise<void>((resolve) => {
       entered = resolve;
@@ -431,7 +432,7 @@ it("refreshes expired inactive OAuth credentials only in the account pool", asyn
     join(dir, "auth.json"),
     JSON.stringify({ test: { type: "api_key", key: "current-key" } }),
   );
-  await store.add("test", "oauth", {
+  await seedAccount(store, "test", "oauth", {
     type: "oauth",
     access: "expired",
     refresh: "refresh-old",
@@ -469,7 +470,7 @@ it("refreshes expired inactive OAuth credentials only in the account pool", asyn
   expect(await readFile(join(dir, "accounts.json"), "utf8")).toContain("new-refresh");
 });
 it("stops a cancelled inactive account lookup while another refresh owns its slot", async () => {
-  await store.add("test", "inactive", { type: "api_key", key: "fixture-key" });
+  await seedAccount(store, "test", "inactive", { type: "api_key", key: "fixture-key" });
   let started!: () => void;
   const active = new Promise<void>((resolve) => {
     started = resolve;
@@ -623,8 +624,8 @@ it.each([false, true])(
       join(dir, "auth.json"),
       JSON.stringify({ test: { type: "api_key", key: "old" } }),
     );
-    await store.save("test", "old");
-    await store.add("test", "next", { type: "api_key", key: "next" });
+    await seedAccount(store, "test", "old");
+    await seedAccount(store, "test", "next", { type: "api_key", key: "next" });
     const handlers = new Map<string, any>();
     const events = new Map<string, any>();
     let service: ReturnType<typeof createUsageService> | undefined;
@@ -673,8 +674,8 @@ it("sends one metadata notification for a persisted preferred-label switch", asy
     join(dir, "auth.json"),
     JSON.stringify({ test: { type: "api_key", key: "current-key" } }),
   );
-  await store.save("test", "default");
-  await store.save("test", "alias");
+  await seedAccount(store, "test", "default");
+  await seedAccount(store, "test", "alias");
   const handlers = new Map<string, (event: unknown, ctx: ExtensionContext) => Promise<void>>();
   const events = new Map<string, (value: unknown) => void>();
   let service: ReturnType<typeof createUsageService> | undefined;
@@ -712,7 +713,7 @@ it("sends one metadata notification for a persisted preferred-label switch", asy
 });
 
 it("announces an email-only storage update as metadata", async () => {
-  await store.add("test", "work", { type: "api_key", key: "fixture-key" });
+  await seedAccount(store, "test", "work", { type: "api_key", key: "fixture-key" });
   const handlers = new Map<string, (event: unknown, ctx: ExtensionContext) => Promise<void>>();
   let service: ReturnType<typeof createUsageService> | undefined;
   const pi = {
@@ -741,7 +742,7 @@ it("announces an email-only storage update as metadata", async () => {
 });
 
 it("receives provider email metadata for exactly the resolved saved account", async () => {
-  await store.add("test", "work", { type: "api_key", key: "fixture-key" });
+  await seedAccount(store, "test", "work", { type: "api_key", key: "fixture-key" });
   const service = createUsageService(store);
   await service.updateAccountEmail("test/work", "work@example.com", "fixture-key");
   expect((await store.list("test"))[0]?.email).toBe("work@example.com");
@@ -754,7 +755,7 @@ it("receives provider email metadata for exactly the resolved saved account", as
 });
 
 it("returns saved email with the active account authentication", async () => {
-  await store.add("test", "work", { type: "api_key", key: "fixture-key" });
+  await seedAccount(store, "test", "work", { type: "api_key", key: "fixture-key" });
   await store.use("test", "work");
   const service = createUsageService(store);
   await service.updateAccountEmail("test/work", "work@example.com", "fixture-key");
@@ -769,7 +770,7 @@ it("returns saved email with the active account authentication", async () => {
 });
 
 it("updates email from a canonical account ID without reading the whole roster", async () => {
-  await store.add("custom/path", "work/personal", { type: "api_key", key: "fixture-key" });
+  await seedAccount(store, "custom/path", "work/personal", { type: "api_key", key: "fixture-key" });
   const service = createUsageService(store);
   const rosterRead = vi.spyOn(store, "usageAccounts");
   const emailWrite = vi.spyOn(store, "updateEmail");
@@ -791,7 +792,7 @@ it("updates email from a canonical account ID without reading the whole roster",
 });
 
 it("marks an unknown auth.json login as Unmanaged without importing it into the pool", async () => {
-  await store.add("test", "saved", { type: "api_key", key: "saved-key" });
+  await seedAccount(store, "test", "saved", { type: "api_key", key: "saved-key" });
   await writeFile(
     join(dir, "auth.json"),
     JSON.stringify({ test: { type: "api_key", key: "external-key" } }),
@@ -852,7 +853,7 @@ it("does not resolve an unmanaged ID after that login becomes a saved account", 
   const pending = service.resolveAccountAuth("current:test", ctx);
   await resolving;
   try {
-    await store.save("test", "work");
+    await seedAccount(store, "test", "work");
   } finally {
     resume();
   }
@@ -861,12 +862,12 @@ it("does not resolve an unmanaged ID after that login becomes a saved account", 
 });
 
 it("changes the account revision only when its credential changes", async () => {
-  await store.add("test", "work", { type: "api_key", key: "first-key" });
+  await seedAccount(store, "test", "work", { type: "api_key", key: "first-key" });
   const service = createUsageService(store);
   const first = (await service.listAccounts())[0]!;
   await service.updateAccountEmail(first.id, "work@example.com", "first-key");
   expect((await service.listAccounts())[0]?.credentialRevision).toBe(first.credentialRevision);
-  await store.saveLogin("test", "work", { type: "api_key", key: "second-key" });
+  await replaceAccount(store, "test", "work", { type: "api_key", key: "second-key" });
   const second = (await service.listAccounts()).find((account) => account.id === first.id)!;
   expect(second.credentialRevision).not.toBe(first.credentialRevision);
   expect(second.credentialRevision).not.toContain("second-key");
