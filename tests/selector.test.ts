@@ -4,7 +4,13 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
 it("wraps full account emails without ellipses", () => {
   const email = "deleted.user.0054@gmail.com";
-  const selector = new AccountSelector("Accounts", [{ id: "slot", label: email, value: "Active" }], { fg: (_c, text) => text }, () => 24, vi.fn());
+  const selector = new AccountSelector(
+    "Accounts",
+    [{ id: "slot", label: email, value: "Active" }],
+    { fg: (_c, text) => text },
+    () => 24,
+    vi.fn(),
+  );
   const rows = selector.render(20);
   expect(rows.join("").replace(/\s/g, "")).toContain(email);
   expect(rows.join("")).not.toContain("deleted.user.0054@g…");
@@ -13,7 +19,13 @@ it("wraps full account emails without ellipses", () => {
 it("keeps a 100-row list bounded while paging, searching and resizing", () => {
   let height = 24;
   const done = vi.fn();
-  const selector = new AccountSelector("Providers", Array.from({ length: 100 }, (_, i) => ({ id: `id-${i}`, label: `Provider ${i}` })), { fg: (_c, text) => text }, () => height, done);
+  const selector = new AccountSelector(
+    "Providers",
+    Array.from({ length: 100 }, (_, i) => ({ id: `id-${i}`, label: `Provider ${i}` })),
+    { fg: (_c, text) => text },
+    () => height,
+    done,
+  );
   expect(selector.render(80).length).toBeLessThan(height);
   selector.handleInput("\u001b[F");
   expect(selector.render(80).join("\n")).toContain("→ Provider 99");
@@ -30,7 +42,13 @@ it("keeps a 100-row list bounded while paging, searching and resizing", () => {
 
 it("does not select anything for empty search results and supports cancellation", () => {
   const done = vi.fn();
-  const selector = new AccountSelector("Providers", [{ id: "a", label: "Alpha" }], { fg: (_c, text) => text }, () => 20, done);
+  const selector = new AccountSelector(
+    "Providers",
+    [{ id: "a", label: "Alpha" }],
+    { fg: (_c, text) => text },
+    () => 20,
+    done,
+  );
   selector.handleInput("missing");
   selector.handleInput("\r");
   expect(done).not.toHaveBeenCalled();
@@ -40,13 +58,27 @@ it("does not select anything for empty search results and supports cancellation"
 });
 
 it("retains distinct provider IDs even when Pi display names match", () => {
-  const ctx = { modelRegistry: { getProviderDisplayName: () => "Same name" } } as unknown as ExtensionCommandContext;
-  expect(providerChoices(ctx, ["a", "b"])).toEqual([{ id: "a", label: "Same name" }, { id: "b", label: "Same name" }]);
+  const ctx = {
+    modelRegistry: { getProviderDisplayName: () => "Same name" },
+  } as unknown as ExtensionCommandContext;
+  expect(providerChoices(ctx, ["a", "b"])).toEqual([
+    { id: "a", label: "Same name" },
+    { id: "b", label: "Same name" },
+  ]);
 });
 
 it("Ctrl+E edits the highlighted account while Enter still switches", () => {
   const done = vi.fn();
-  const selector = new AccountSelector("Accounts", [{ id: "account:work", label: "work", editId: "label:work" }, { id: "account:personal", label: "personal", editId: "label:personal" }], { fg: (_c, text) => text }, () => 20, done);
+  const selector = new AccountSelector(
+    "Accounts",
+    [
+      { id: "account:work", label: "work", editId: "label:work" },
+      { id: "account:personal", label: "personal", editId: "label:personal" },
+    ],
+    { fg: (_c, text) => text },
+    () => 20,
+    done,
+  );
   selector.handleInput("\u001b[B");
   expect(selector.render(80).join("\n")).toContain("Ctrl+E rename");
   selector.handleInput("\u0005");

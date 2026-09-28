@@ -95,6 +95,8 @@ it("notifies account consumers after a committed switch even when registry refre
   expect(pi.events.emit).toHaveBeenCalledWith("pi-accounts:changed", {
     provider: "test",
     name: "work",
+    forceNotify: true,
+    storageChanged: true,
   });
   expect(ui.notify).toHaveBeenCalledWith(
     "Account selection was saved, but runtime refresh failed. Retry the switch before continuing.",
@@ -157,7 +159,10 @@ it("edits a label without switching or changing Pi credentials", async () => {
   expect(ui.select.mock.calls[2]?.[1]).toContain("personal");
   expect(ui.notify).toHaveBeenCalledWith("Label updated: personal.", "info");
   expect(pi.events.emit).toHaveBeenCalledWith("pi-accounts:changed", {
-    provider: "test", name: "personal", kind: "metadata", storageChanged: true,
+    provider: "test",
+    name: "personal",
+    kind: "metadata",
+    storageChanged: true,
   });
 });
 
@@ -173,12 +178,17 @@ it("shows OAuth email instead of the slot label and offers editing only without 
   const access = `x.${Buffer.from(JSON.stringify({ email })).toString("base64url")}.y`;
   await store.add("test", "email-slot", { type: "oauth", access, refresh: "fixture", expires: 1 });
   await store.add("test", "custom", { type: "api_key", key: "custom-key" });
+  const list = vi
+    .spyOn(store, "list")
+    .mockImplementationOnce(AccountStore.prototype.list.bind(store));
+  list.mockRejectedValue(new Error("Storage became unavailable after the committed switch"));
   const { ctx, pi, ui } = context(["Test Provider", email], []);
   await runAccountCommand(pi, ctx, store);
   expect(ui.select.mock.calls[1]?.[1]).toContain(email);
   expect(ui.select.mock.calls[1]?.[1]).not.toContain("email-slot");
   expect(ui.select.mock.calls[1]?.[1]).not.toContain(`Ctrl+E ${email}`);
   expect(ui.select.mock.calls[1]?.[1]).toContain("Ctrl+E custom");
-  expect((await store.list("test")).find((a) => a.active)?.name).toBe("email-slot");
+  expect((await new AccountStore(dir).list("test")).find((a) => a.active)?.name).toBe("email-slot");
   expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining(email), "info");
+  expect(list).toHaveBeenCalledOnce();
 });

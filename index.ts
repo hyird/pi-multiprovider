@@ -13,7 +13,10 @@ export default function accounts(pi: ExtensionAPI) {
   pi.registerCommand("switch-account", {
     description: "Switch or rename saved accounts",
     handler: async (args, ctx) => {
-      if (busy || !ctx.isIdle()) { ctx.ui.notify("Wait for the current request to finish.", "warning"); return; }
+      if (busy || !ctx.isIdle()) {
+        ctx.ui.notify("Wait for the current request to finish.", "warning");
+        return;
+      }
       busy = true;
       try {
         const input = args.trim();
@@ -22,8 +25,15 @@ export default function accounts(pi: ExtensionAPI) {
         const label = separator < 0 ? undefined : input.slice(separator).trim();
         await runAccountCommand(pi, ctx, store, provider || undefined, label || undefined);
       } catch (error) {
-        ctx.ui.notify(error instanceof AccountError ? error.message : "Account operation failed. Check permissions or try again.", "error");
-      } finally { busy = false; }
+        ctx.ui.notify(
+          error instanceof AccountError
+            ? error.message
+            : "Account operation failed. Check permissions or try again.",
+          "error",
+        );
+      } finally {
+        busy = false;
+      }
     },
   });
 }

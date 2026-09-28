@@ -1,6 +1,11 @@
 import { createModels, type Credential, type ModelAuth } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { AccountStore, conflictingOAuthIdentitySnapshots, credentialRevision, type OAuthIdentity } from "./store.ts";
+import {
+  AccountStore,
+  conflictingOAuthIdentitySnapshots,
+  credentialRevision,
+  type OAuthIdentity,
+} from "./store.ts";
 import { createAuthSync } from "./auth-sync.ts";
 
 export const ACCOUNTS_SERVICE_EVENT = "pi-accounts:service";
@@ -127,7 +132,7 @@ export function createUsageService(store: AccountStore) {
     signal?.throwIfAborted();
     const token = accessToken(resolved?.auth);
     if (!token) throw new Error("Current account authentication unavailable");
-    const current = await accountById(account.id, token);
+    const current = await awaitWithAbort(accountById(account.id, token), signal);
     if (!current?.active) throw new Error("Current account changed during authentication");
     // A raw token can be reused while the OAuth account ID changes. Compare
     // the login identity before accepting the provider's resolved token.
@@ -167,7 +172,9 @@ export function createUsageService(store: AccountStore) {
       return account ? accountView(account) : undefined;
     },
     async resolveAccountAuth(id: string, ctx: Context, signal?: AbortSignal) {
-      const account = await accountById(id);
+      signal?.throwIfAborted();
+      const account = await awaitWithAbort(accountById(id), signal);
+      signal?.throwIfAborted();
       if (!account) throw new Error("Account not found");
       let resolved;
       if (account.active) resolved = await resolveCurrent(account, ctx, signal);
@@ -176,58 +183,67 @@ export function createUsageService(store: AccountStore) {
         if (!provider) throw new Error("Provider unavailable");
         // Each profile gets an isolated credential store. Refresh never activates an inactive account.
         resolved = await store.withAccount(
-        account.providerId,
-        account.label,
-        async (value) => {
-          let credential = value as Credential;
-          if (credential.type === "api_key" && credential.key?.startsWith("!"))
-            throw new Error("Inactive command-based keys cannot be queried in isolation");
-          const models = createModels({
-            credentials: {
-              read: async (key) => (key === account.providerId ? credential : undefined),
-              list: async () => [{ providerId: account.providerId, type: credential.type }],
-              modify: async (key, fn) => {
-                if (key !== account.providerId) throw new Error("Wrong provider");
-                credential = (await fn(credential)) ?? credential;
-                return credential;
+          account.providerId,
+          account.label,
+          async (value) => {
+            let credential = value as Credential;
+            if (credential.type === "api_key" && credential.key?.startsWith("!"))
+              throw new Error("Inactive command-based keys cannot be queried in isolation");
+            const models = createModels({
+              credentials: {
+                read: async (key) => (key === account.providerId ? credential : undefined),
+                list: async () => [{ providerId: account.providerId, type: credential.type }],
+                modify: async (key, fn) => {
+                  if (key !== account.providerId) throw new Error("Wrong provider");
+                  credential = (await fn(credential)) ?? credential;
+                  return credential;
+                },
+                delete: async () => {
+                  throw new Error("Read/refresh only");
+                },
               },
-              delete: async () => {
-                throw new Error("Read/refresh only");
+            });
+            models.setProvider(provider);
+            signal?.throwIfAborted();
+            const resolved = await models.getAuth(account.providerId, { signal });
+            signal?.throwIfAborted();
+            const token = accessToken(resolved?.auth);
+            if (!token) throw new Error("Account authentication unavailable");
+            return {
+              credential,
+              result: {
+                accessToken: token,
+                label: account.label,
+                ...(account.email ? { email: account.email } : {}),
+                credentialRevision: credentialRevision(credential),
               },
-            },
-          });
-          models.setProvider(provider);
-          signal?.throwIfAborted();
-          const resolved = await models.getAuth(account.providerId, { signal });
-          signal?.throwIfAborted();
-          const token = accessToken(resolved?.auth);
-          if (!token) throw new Error("Account authentication unavailable");
-          return {
-            credential,
-            result: {
-              accessToken: token,
-              label: account.label,
-              ...(account.email ? { email: account.email } : {}),
-              credentialRevision: credentialRevision(credential),
-            },
-          };
-        },
-        signal,
+            };
+          },
+          signal,
         );
       }
       const identity = savedAccountIdentity(id);
       return {
         ...resolved,
         updateEmail: identity
-          ? (email: string) => store.updateEmail(
-              identity.provider, identity.label, email, resolved.accessToken, resolved.credentialRevision,
-            )
+          ? (email: string) =>
+              store.updateEmail(
+                identity.provider,
+                identity.label,
+                email,
+                resolved.accessToken,
+                resolved.credentialRevision,
+              )
           : undefined,
       };
     },
     async resolveActiveAccountAuth(provider: string, ctx: Context, signal?: AbortSignal) {
-      const current = await store.usageAccount(provider);
-      const account = current ? { ...accountView(current), oauthIdentity: current.oauthIdentity } : undefined;
+      signal?.throwIfAborted();
+      const current = await awaitWithAbort(store.usageAccount(provider), signal);
+      signal?.throwIfAborted();
+      const account = current
+        ? { ...accountView(current), oauthIdentity: current.oauthIdentity }
+        : undefined;
       if (!account) return undefined;
       return resolveCurrent(account, ctx, signal);
     },
@@ -244,9 +260,16 @@ export function createUsageService(store: AccountStore) {
       };
     },
     changed(provider: string, ctx?: ExtensionContext, kind?: "metadata") {
-      for (const callback of listeners.get(provider) ?? []) {
+      // Listener changes apply to the next event, not the dispatch in progress.
+      for (const callback of [...(listeners.get(provider) ?? [])]) {
         try {
-          callback({ providerId: provider, ctx, ...(kind ? { kind } : {}) });
+          // Void callbacks may still be async; observe their returned promises.
+          const pending: unknown = callback({
+            providerId: provider,
+            ctx,
+            ...(kind ? { kind } : {}),
+          });
+          if (pending) void Promise.resolve(pending).catch(() => {});
         } catch {
           /* One usage consumer must not interrupt account synchronization. */
         }
@@ -259,15 +282,19 @@ export function createUsageService(store: AccountStore) {
 export function registerUsageService(pi: ExtensionAPI, store: AccountStore) {
   const service = createUsageService(store);
   let ctx: ExtensionContext | undefined;
+  let sessionRevision = 0;
+  const pendingRuntimeNotifications = new Set<string>();
   const sync = createAuthSync(
     store,
     (result) => {
-      for (const provider of result.changed)
+      for (const provider of result.changed) {
+        pendingRuntimeNotifications.delete(provider);
         service.changed(
           provider,
           ctx,
           result.metadataChanged?.includes(provider) ? "metadata" : undefined,
         );
+      }
       if (ctx?.hasUI && result.added.length) {
         ctx.ui.notify(
           `Saved new accounts: ${result.added.map((a) => `${a.provider} / ${a.name}`).join(", ")}. Rename with /switch-account.`,
@@ -289,33 +316,54 @@ export function registerUsageService(pi: ExtensionAPI, store: AccountStore) {
       typeof value.provider !== "string"
     )
       return;
+    const provider = value.provider;
+    const metadata = "kind" in value && value.kind === "metadata";
+    const storageChanged = "storageChanged" in value && value.storageChanged === true;
+    const forceNotify = "forceNotify" in value && value.forceNotify === true;
     // A preferred-label switch has already changed accounts.json. Reconcile
     // now so the later file-watch event does not notify consumers twice.
-    if (
-      "storageChanged" in value &&
-      value.storageChanged === true &&
-      "kind" in value &&
-      value.kind === "metadata"
-    )
+    if (storageChanged && metadata) {
       void sync.reconcile();
+      return;
+    }
+    if (!forceNotify) {
+      sync.schedule();
+      return;
+    }
     // Repeating the current selection can refresh Pi's runtime without any
     // storage change, so it still needs a direct notification.
-    else if ("forceNotify" in value && value.forceNotify === true)
-      service.changed(
-        value.provider,
-        ctx,
-        "kind" in value && value.kind === "metadata" ? "metadata" : undefined,
-      );
-    else sync.schedule();
+    if (!storageChanged) {
+      service.changed(provider, ctx, metadata ? "metadata" : undefined);
+      return;
+    }
+    const context = ctx;
+    const revision = sessionRevision;
+    pendingRuntimeNotifications.add(provider);
+    // A slow registry refresh may finish after the file watcher already
+    // announced the switch. Reconcile first to avoid normal duplicates,
+    // then ensure consumers get a notification with the refreshed runtime.
+    void sync.reconcile().then(() => {
+      // A previous session must not consume a newer session's pending notice.
+      if (
+        revision === sessionRevision &&
+        context &&
+        ctx === context &&
+        pendingRuntimeNotifications.delete(provider)
+      )
+        service.changed(provider, context);
+    });
   });
   pi.on("session_start", async (_event, context) => {
+    const revision = ++sessionRevision;
     ctx = context;
     await sync.start();
-    pi.events.emit(ACCOUNTS_SERVICE_EVENT, service);
+    if (revision === sessionRevision) pi.events.emit(ACCOUNTS_SERVICE_EVENT, service);
   });
   pi.on("session_shutdown", async () => {
-    await sync.stop();
+    sessionRevision++;
     ctx = undefined;
+    pendingRuntimeNotifications.clear();
+    await sync.stop();
   });
   pi.events.on("pi-accounts:request-service", () =>
     pi.events.emit(ACCOUNTS_SERVICE_EVENT, service),

@@ -4,3 +4,6 @@ node_modules/
 .env.*
 auth.json
 accounts.json
+
+# Bun owns dependency versions; Pi installation may generate this file.
+/package-lock.json

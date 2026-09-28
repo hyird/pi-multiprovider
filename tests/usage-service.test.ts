@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { OAuthCredential } from "@earendil-works/pi-ai";
 import { AccountStore } from "../src/store.ts";
+import { activate } from "../src/menu.ts";
 import {
   ACCOUNTS_SERVICE_EVENT,
   createUsageService,
@@ -289,25 +290,38 @@ it("accepts a token refreshed by the active OAuth provider during resolution", a
   });
   expect(result.credentialRevision).toBe((await service.listAccounts())[0]?.credentialRevision);
 });
-it.each(["saved", "active"] as const)("rejects a different OAuth account that reuses the same access token during %s resolution", async (kind) => {
-  const original = { type: "oauth", access: "shared-access", refresh: "refresh-a", expires: 1, accountId: "org-a" };
-  await writeFile(join(dir, "auth.json"), JSON.stringify({ "openai-codex": original }));
-  await store.save("openai-codex", "work");
-  const ctx = {
-    modelRegistry: {
-      getProviderAuth: async () => {
-        await store.saveLogin("openai-codex", "work", { ...original, refresh: "refresh-b", accountId: "org-b" });
-        return { auth: { apiKey: original.access } };
+it.each(["saved", "active"] as const)(
+  "rejects a different OAuth account that reuses the same access token during %s resolution",
+  async (kind) => {
+    const original = {
+      type: "oauth",
+      access: "shared-access",
+      refresh: "refresh-a",
+      expires: 1,
+      accountId: "org-a",
+    };
+    await writeFile(join(dir, "auth.json"), JSON.stringify({ "openai-codex": original }));
+    await store.save("openai-codex", "work");
+    const ctx = {
+      modelRegistry: {
+        getProviderAuth: async () => {
+          await store.saveLogin("openai-codex", "work", {
+            ...original,
+            refresh: "refresh-b",
+            accountId: "org-b",
+          });
+          return { auth: { apiKey: original.access } };
+        },
       },
-    },
-  } as unknown as ExtensionContext;
-  const service = createUsageService(store);
-  const resolving = kind === "saved"
-    ? service.resolveAccountAuth("openai-codex/work", ctx)
-    : service.resolveActiveAccountAuth("openai-codex", ctx);
-  await expect(resolving)
-    .rejects.toThrow("Current account changed during authentication");
-});
+    } as unknown as ExtensionContext;
+    const service = createUsageService(store);
+    const resolving =
+      kind === "saved"
+        ? service.resolveAccountAuth("openai-codex/work", ctx)
+        : service.resolveActiveAccountAuth("openai-codex", ctx);
+    await expect(resolving).rejects.toThrow("Current account changed during authentication");
+  },
+);
 it("returns the final credential type when the same active slot changes during resolution", async () => {
   const old = { type: "oauth", access: "old-token", refresh: "old-refresh", expires: 1 };
   await writeFile(join(dir, "auth.json"), JSON.stringify({ test: old }));
@@ -349,47 +363,69 @@ it("resolves every active alias with its own label", async () => {
     label: "alias",
   });
 });
-it("stops waiting for Pi authentication when an active account lookup is cancelled", async () => {
-  await writeFile(
-    join(dir, "auth.json"),
-    JSON.stringify({ test: { type: "api_key", key: "current-key" } }),
-  );
-  await store.save("test", "work");
-  let entered!: () => void;
-  const started = new Promise<void>((resolve) => {
-    entered = resolve;
-  });
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const ctx = {
-    modelRegistry: {
-      getProviderAuth: async () => {
+it.each(["authentication", "saved lookup", "current lookup", "identity verification"])(
+  "stops waiting when %s is cancelled",
+  async (stage) => {
+    await writeFile(
+      join(dir, "auth.json"),
+      JSON.stringify({ test: { type: "api_key", key: "current-key" } }),
+    );
+    await store.save("test", "work");
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const account = await store.usageAccount("test");
+    let reads = 0;
+    vi.spyOn(store, "usageAccount").mockImplementation(async () => {
+      reads++;
+      if (
+        (stage === "identity verification" && reads === 2) ||
+        ((stage === "saved lookup" || stage === "current lookup") && reads === 1)
+      ) {
         entered();
         await gate;
-        return { auth: { apiKey: "current-key" } };
+      }
+      return account;
+    });
+    const ctx = {
+      modelRegistry: {
+        getProviderAuth: async () => {
+          if (stage === "authentication") {
+            entered();
+            await gate;
+          }
+          return { auth: { apiKey: "current-key" } };
+        },
       },
-    },
-  } as unknown as ExtensionContext;
-  const controller = new AbortController();
-  const pending = createUsageService(store).resolveAccountAuth("test/work", ctx, controller.signal);
-  try {
-    await started;
-    controller.abort();
-    const outcome = await Promise.race([
-      pending.then(
-        () => "resolved",
-        () => "cancelled",
-      ),
-      new Promise<string>((resolve) => setTimeout(() => resolve("timed out"), 200)),
-    ]);
-    expect(outcome).toBe("cancelled");
-  } finally {
-    release();
-    await Promise.allSettled([pending]);
-  }
-});
+    } as unknown as ExtensionContext;
+    const controller = new AbortController();
+    const service = createUsageService(store);
+    const pending =
+      stage === "current lookup"
+        ? service.resolveActiveAccountAuth("test", ctx, controller.signal)
+        : service.resolveAccountAuth("test/work", ctx, controller.signal);
+    try {
+      await started;
+      controller.abort();
+      const outcome = await Promise.race([
+        pending.then(
+          () => "resolved",
+          () => "cancelled",
+        ),
+        new Promise<string>((resolve) => setTimeout(() => resolve("timed out"), 200)),
+      ]);
+      expect(outcome).toBe("cancelled");
+    } finally {
+      release();
+      await Promise.allSettled([pending]);
+    }
+  },
+);
 it("refreshes expired inactive OAuth credentials only in the account pool", async () => {
   await writeFile(
     join(dir, "auth.json"),
@@ -512,15 +548,34 @@ it("notifies only listeners for the changed provider", () => {
   service.changed("test");
   expect(callback).toHaveBeenCalledTimes(2);
 });
-it("continues notifying account listeners when one consumer throws", () => {
+it.each([false, true])(
+  "isolates listener failures, including asynchronous failures: %s",
+  async (asynchronous) => {
+    const service = createUsageService(store);
+    service.onActiveAccountChanged("test", () => {
+      if (asynchronous) return Promise.reject(new Error("consumer failed asynchronously"));
+      throw new Error("consumer failed");
+    });
+    const healthy = vi.fn();
+    service.onActiveAccountChanged("test", healthy);
+    expect(() => service.changed("test")).not.toThrow();
+    expect(healthy).toHaveBeenCalledOnce();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  },
+);
+
+it("notifies newly registered listeners only on the next account change", () => {
   const service = createUsageService(store);
-  service.onActiveAccountChanged("test", () => {
-    throw new Error("consumer failed");
+  service.onActiveAccountChanged("test", () => {});
+  const replacement = vi.fn();
+  const off = service.onActiveAccountChanged("test", () => {
+    off();
+    service.onActiveAccountChanged("test", replacement);
   });
-  const healthy = vi.fn();
-  service.onActiveAccountChanged("test", healthy);
-  expect(() => service.changed("test")).not.toThrow();
-  expect(healthy).toHaveBeenCalledOnce();
+  service.changed("test");
+  expect(replacement).not.toHaveBeenCalled();
+  service.changed("test");
+  expect(replacement).toHaveBeenCalledOnce();
 });
 
 it("notifies usage consumers when a repeated switch only refreshes Pi's runtime", async () => {
@@ -560,6 +615,58 @@ it("notifies usage consumers when a repeated switch only refreshes Pi's runtime"
     await handlers.get("session_shutdown")!({}, ctx);
   }
 });
+
+it.each([false, true])(
+  "notifies after runtime refresh even when the watcher ran first: %s",
+  async (slow) => {
+    await writeFile(
+      join(dir, "auth.json"),
+      JSON.stringify({ test: { type: "api_key", key: "old" } }),
+    );
+    await store.save("test", "old");
+    await store.add("test", "next", { type: "api_key", key: "next" });
+    const handlers = new Map<string, any>();
+    const events = new Map<string, any>();
+    let service: ReturnType<typeof createUsageService> | undefined;
+    const pi = {
+      on: (name: string, handler: any) => handlers.set(name, handler),
+      events: {
+        on: (name: string, handler: any) => events.set(name, handler),
+        emit: (name: string, value: unknown) => {
+          if (name === ACCOUNTS_SERVICE_EVENT) service = value as typeof service;
+          events.get(name)?.(value);
+        },
+      },
+    } as unknown as ExtensionAPI;
+    let refreshed = false;
+    const notifications: boolean[] = [];
+    const ctx: any = {
+      hasUI: false,
+      isIdle: () => true,
+      ui: { notify: vi.fn() },
+      modelRegistry: {
+        getProviderDisplayName: () => "Test",
+        refresh: async () => {
+          if (slow) await vi.waitFor(() => expect(notifications).toEqual([false]));
+          refreshed = true;
+          return { errors: new Map(), aborted: false };
+        },
+      },
+    };
+    registerUsageService(pi, store);
+    try {
+      await handlers.get("session_start")({}, ctx);
+      service!.onActiveAccountChanged("test", () => notifications.push(refreshed));
+      await activate(pi, ctx, store, "test", "next");
+      await vi.waitFor(() => expect(notifications).toEqual(slow ? [false, true] : [true]));
+      // A further reconciliation must not duplicate the settled switch.
+      await handlers.get("session_start")({}, ctx);
+      expect(notifications).toEqual(slow ? [false, true] : [true]);
+    } finally {
+      await handlers.get("session_shutdown")({}, ctx);
+    }
+  },
+);
 
 it("sends one metadata notification for a persisted preferred-label switch", async () => {
   await writeFile(
@@ -764,6 +871,75 @@ it("changes the account revision only when its credential changes", async () => 
   expect(second.credentialRevision).not.toBe(first.credentialRevision);
   expect(second.credentialRevision).not.toContain("second-key");
 });
+
+it.each([false, true])(
+  "does not revive a stopped startup or erase a newer session: %s",
+  async (restart) => {
+    const handlers = new Map<string, any>();
+    const events = new Map<string, any>();
+    const announced = vi.fn();
+    let service!: ReturnType<typeof createUsageService>;
+    const pi = {
+      on: (name: string, handler: any) => handlers.set(name, handler),
+      events: {
+        on: (name: string, handler: any) => events.set(name, handler),
+        emit: (name: string, value: unknown) => {
+          if (name === ACCOUNTS_SERVICE_EVENT) {
+            service = value as typeof service;
+            announced();
+          }
+        },
+      },
+    } as unknown as ExtensionAPI;
+    let entered!: () => void;
+    let release!: () => void;
+    const running = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const reconcile = store.reconcileCurrentAccounts.bind(store);
+    vi.spyOn(store, "reconcileCurrentAccounts").mockImplementationOnce(async () => {
+      entered();
+      await gate;
+      return reconcile();
+    });
+    const oldContext = { hasUI: false };
+    const newContext = { hasUI: false };
+    registerUsageService(pi, store);
+    const changed = vi.fn();
+    service.onActiveAccountChanged("test", changed);
+    const starting = handlers.get("session_start")({}, oldContext);
+    await running;
+    events.get("pi-accounts:changed")({
+      provider: "test",
+      forceNotify: true,
+      storageChanged: true,
+    });
+    const stopping = handlers.get("session_shutdown")({});
+    const restarting = restart ? handlers.get("session_start")({}, newContext) : Promise.resolve();
+    if (restart)
+      events.get("pi-accounts:changed")({
+        provider: "test",
+        forceNotify: true,
+        storageChanged: true,
+      });
+    try {
+      release();
+      await Promise.all([starting, stopping, restarting]);
+      expect(announced).toHaveBeenCalledTimes(restart ? 2 : 1);
+      expect(changed).toHaveBeenCalledTimes(restart ? 1 : 0);
+      if (restart) {
+        events.get("pi-accounts:changed")({ provider: "test", forceNotify: true });
+        expect(changed).toHaveBeenLastCalledWith({ providerId: "test", ctx: newContext });
+      }
+    } finally {
+      release();
+      await handlers.get("session_shutdown")({});
+    }
+  },
+);
 
 it("publishes startup synchronization and notifies usage listeners after native login and logout", async () => {
   const handlers = new Map<string, (event: unknown, ctx: ExtensionContext) => Promise<void>>();

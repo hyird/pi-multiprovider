@@ -12,13 +12,12 @@ export async function activate(
   name: string,
 ) {
   if (!ctx.isIdle()) throw new AccountError("A request is running. Try again when it finishes.");
-  const { credentialChanged, preferredLabelChanged } = await store.use(provider, name);
+  const { credentialChanged, preferredLabelChanged, email } = await store.use(provider, name);
   try {
     const result = await ctx.modelRegistry.refresh({ providers: [provider], allowNetwork: false });
     if (result.errors.size || result.aborted) throw new Error("Refresh incomplete");
-    const account = (await store.list(provider)).find((a) => a.name === name);
     ctx.ui.notify(
-      `Switched permanently to ${ctx.modelRegistry.getProviderDisplayName(provider)} / ${account?.email ?? name}. Effective on the next request.`,
+      `Switched permanently to ${ctx.modelRegistry.getProviderDisplayName(provider)} / ${email ?? name}. Effective on the next request.`,
       "info",
     );
   } catch {
@@ -33,12 +32,12 @@ export async function activate(
       pi.events.emit("pi-accounts:changed", {
         provider,
         name,
-        ...(!credentialChanged
-          ? {
-              forceNotify: true,
-              ...(preferredLabelChanged ? { kind: "metadata", storageChanged: true } : {}),
-            }
-          : {}),
+        forceNotify: true,
+        ...(credentialChanged
+          ? { storageChanged: true }
+          : preferredLabelChanged
+            ? { kind: "metadata", storageChanged: true }
+            : {}),
       });
     } catch {
       /* The auth.json watcher still reconciles a committed switch. */
@@ -113,7 +112,10 @@ export async function runAccountCommand(
       // immediately and keep the credential's quota cache warm.
       try {
         pi.events.emit("pi-accounts:changed", {
-          provider, name: label, kind: "metadata", storageChanged: true,
+          provider,
+          name: label,
+          kind: "metadata",
+          storageChanged: true,
         });
       } catch {
         /* The accounts.json watcher still reconciles a committed rename. */

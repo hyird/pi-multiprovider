@@ -4,11 +4,19 @@ import { join } from "node:path";
 import { AccountStore } from "./store.ts";
 
 type Result = Awaited<ReturnType<AccountStore["reconcileCurrentAccounts"]>>;
-type WatchDirectory = (directory: string, listener: (event: string, filename: string | Buffer | null) => void) => FSWatcher;
+type WatchDirectory = (
+  directory: string,
+  listener: (event: string, filename: string | Buffer | null) => void,
+) => FSWatcher;
 
-export function createAuthSync(store: AccountStore, onChange: (result: Result) => void, onError: () => void,
-  watchDirectory: WatchDirectory = (directory, listener) => watch(directory, { persistent: false }, listener),
-  now: () => number = () => Date.now()) {
+export function createAuthSync(
+  store: AccountStore,
+  onChange: (result: Result) => void,
+  onError: () => void,
+  watchDirectory: WatchDirectory = (directory, listener) =>
+    watch(directory, { persistent: false }, listener),
+  now: () => number = () => Date.now(),
+) {
   let watcher: FSWatcher | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let fallback: ReturnType<typeof setInterval> | undefined;
@@ -35,8 +43,7 @@ export function createAuthSync(store: AccountStore, onChange: (result: Result) =
   // An already requested minute pass satisfies the timer while it is running.
   // File changes and failed passes still trigger another reconciliation.
   const needsReconcile = (stamp: string) =>
-    failed || stamp !== lastStamp ||
-    now() - Math.max(lastReconciledAt, lastRequestedAt) >= 60_000;
+    failed || stamp !== lastStamp || now() - Math.max(lastReconciledAt, lastRequestedAt) >= 60_000;
   const reconcile = () => {
     if (stopped || scheduled) return queue;
     // A burst of watcher/fallback events needs one pending pass. An event that
@@ -56,8 +63,11 @@ export function createAuthSync(store: AccountStore, onChange: (result: Result) =
         const notify = !stopped && !failed;
         failed = true;
         if (notify) {
-          try { onError(); }
-          catch { /* A broken notification UI must not poison the sync queue. */ }
+          try {
+            onError();
+          } catch {
+            /* A broken notification UI must not poison the sync queue. */
+          }
         }
         return;
       }
@@ -65,8 +75,11 @@ export function createAuthSync(store: AccountStore, onChange: (result: Result) =
       lastStamp = stamp;
       lastReconciledAt = now();
       if (!stopped && result.changed.length) {
-        try { onChange(result); }
-        catch { /* Storage was reconciled; a consumer callback cannot stop future syncs. */ }
+        try {
+          onChange(result);
+        } catch {
+          /* Storage was reconciled; a consumer callback cannot stop future syncs. */
+        }
       }
     });
     return queue;
@@ -79,12 +92,20 @@ export function createAuthSync(store: AccountStore, onChange: (result: Result) =
       timer = undefined;
       const checkStamp = unknownEventsOnly;
       unknownEventsOnly = false;
-      if (!checkStamp) { void reconcile(); return; }
+      if (!checkStamp) {
+        void reconcile();
+        return;
+      }
       // An empty watcher filename can also describe an unrelated lock file.
       // Reconcile only when a tracked file changed or the fallback is due.
-      void fileStamp().then(stamp => {
-        if (!stopped && needsReconcile(stamp)) void reconcile();
-      }, () => { if (!stopped) void reconcile(); });
+      void fileStamp().then(
+        (stamp) => {
+          if (!stopped && needsReconcile(stamp)) void reconcile();
+        },
+        () => {
+          if (!stopped) void reconcile();
+        },
+      );
     }, 150);
     timer.unref();
   };
@@ -94,12 +115,17 @@ export function createAuthSync(store: AccountStore, onChange: (result: Result) =
       // Watch the directory: auth.json and accounts.json are atomically replaced.
       const handle = watchDirectory(store.directory, (_event, filename) => {
         if (filename === null) schedule(true);
-        else if (filename.toString() === "auth.json" || filename.toString() === "accounts.json") schedule();
+        else if (filename.toString() === "auth.json" || filename.toString() === "accounts.json")
+          schedule();
       });
       watcher = handle;
       handle.on("error", () => {
         if (watcher === handle) watcher = undefined;
-        try { handle.close(); } catch { /* The failed handle may already be closed. */ }
+        try {
+          handle.close();
+        } catch {
+          /* The failed handle may already be closed. */
+        }
         schedule();
       });
       handle.on("close", () => {
@@ -109,7 +135,9 @@ export function createAuthSync(store: AccountStore, onChange: (result: Result) =
         // Reconcile once and reopen it on the next fallback check.
         schedule();
       });
-    } catch { /* Periodic reconciliation remains available. */ }
+    } catch {
+      /* Periodic reconciliation remains available. */
+    }
   };
   return {
     reconcile,
@@ -125,10 +153,14 @@ export function createAuthSync(store: AccountStore, onChange: (result: Result) =
         // one full pass per minute even if metadata appears unchanged.
         fallback = setInterval(() => {
           ensureWatcher();
-          void fileStamp().then(stamp => {
-            if (!stopped && needsReconcile(stamp))
-              void reconcile();
-          }, () => { if (!stopped) void reconcile(); });
+          void fileStamp().then(
+            (stamp) => {
+              if (!stopped && needsReconcile(stamp)) void reconcile();
+            },
+            () => {
+              if (!stopped) void reconcile();
+            },
+          );
         }, 5000);
         fallback.unref();
       }

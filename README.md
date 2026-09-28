@@ -81,3 +81,5 @@ bun run check
 ```
 
 Install a local checkout with `pi install /absolute/path/to/pi-multiprovider`. Tests use temporary directories and synthetic credentials, including a real Pi runtime authentication check. They do not authenticate real accounts or call provider services.
+
+Use kebab-case file names and keep tests in `tests/` as `<module>.test.ts`. Name cross-module tests `<feature>-integration.test.ts` and put executable test fixtures in `tests/fixtures/`. Keep regressions in the owning test suite; avoid separate files for a single check. Use Bun and commit only `bun.lock` for dependency resolution.
