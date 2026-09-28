@@ -431,11 +431,6 @@ export class AccountStore {
       await savePool();
     });
   }
-  async providers(): Promise<string[]> {
-    return this.transaction(async (auth, pool) => [
-      ...new Set([...Object.keys(auth), ...pool.accounts.map((a) => a.provider)]),
-    ]);
-  }
   async menuSnapshot() {
     return this.transaction(async (auth, pool) => ({
       providers: [...new Set([...Object.keys(auth), ...pool.accounts.map((a) => a.provider)])],
@@ -450,15 +445,6 @@ export class AccountStore {
         };
       }),
     }));
-  }
-  async currentAuthKinds(): Promise<Record<string, Credential["type"]>> {
-    return this.transaction(async (auth) =>
-      Object.fromEntries(
-        Object.entries(auth)
-          .filter((entry): entry is [string, Credential] => credential(entry[1]))
-          .map(([provider, current]) => [provider, current.type]),
-      ),
-    );
   }
   async usageAccounts() {
     return this.transaction(async (auth, pool) => {
@@ -659,9 +645,6 @@ export class AccountStore {
       return next.result;
     });
   }
-  async unmanagedAccounts() {
-    return (await this.usageAccounts()).unmanaged;
-  }
   async ensureCurrent(provider: string, saveUnknown = true): Promise<void> {
     await this.transaction(async (auth, pool, savePool) => {
       const current = auth[provider];
@@ -684,31 +667,6 @@ export class AccountStore {
         name = `default-${suffix++}`;
       pool.accounts.push({ provider, name, credential: current });
       await savePool();
-    });
-  }
-  async removeProvider(provider: string): Promise<void> {
-    await this.transaction(async (auth, pool, savePool, saveAuth) => {
-      pool.accounts = pool.accounts.filter((a) => a.provider !== provider);
-      await savePool();
-      delete auth[provider];
-      await saveAuth();
-    });
-  }
-  async logout(provider: string, name: string): Promise<void> {
-    await this.transaction(async (auth, pool, savePool, saveAuth) => {
-      const account = pool.accounts.find((a) => a.provider === provider && a.name === name);
-      if (!account) throw new AccountError("Account not found.");
-      const current = auth[provider];
-      const active = credential(current) && sameAccount(account.credential, current);
-      // Remove aliases of the same login as well, so signing out cannot leave a duplicate behind.
-      pool.accounts = pool.accounts.filter(
-        (a) => a.provider !== provider || !sameAccount(a.credential, account.credential),
-      );
-      await savePool();
-      if (active) {
-        delete auth[provider];
-        await saveAuth();
-      }
     });
   }
   async add(provider: string, name: string, value: unknown): Promise<void> {
@@ -815,17 +773,6 @@ export class AccountStore {
         ...(email ? { email } : {}),
         ...(preferredLabelChanged ? { preferredLabelChanged: true } : {}),
       };
-    });
-  }
-  async remove(provider: string, name: string): Promise<void> {
-    await this.transaction(async (auth, pool, savePool) => {
-      const index = pool.accounts.findIndex((a) => a.provider === provider && a.name === name);
-      if (index < 0) throw new AccountError("Account not found.");
-      const current = auth[provider];
-      if (credential(current) && sameAccount(pool.accounts[index]!.credential, current))
-        throw new AccountError("Switch to another account before removing the active account.");
-      pool.accounts.splice(index, 1);
-      await savePool();
     });
   }
 }

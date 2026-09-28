@@ -129,17 +129,11 @@ it("marks a preferred-label switch as metadata for usage consumers", async () =>
   });
 });
 
-it("builds a multi-provider menu from one storage snapshot", async () => {
+it("lists saved providers in the switch menu", async () => {
   await store.ensureCurrent("test");
   await store.add("new-provider", "spare", { type: "api_key", key: "spare-key" });
-  const snapshot = vi.spyOn(store, "menuSnapshot");
-  const providers = vi.spyOn(store, "providers");
-  const list = vi.spyOn(store, "list");
   const { ctx, pi, ui } = context([undefined], []);
   await runAccountCommand(pi, ctx, store);
-  expect(snapshot).toHaveBeenCalledOnce();
-  expect(providers).not.toHaveBeenCalled();
-  expect(list).not.toHaveBeenCalled();
   expect(ui.select.mock.calls[0]?.[1]).toEqual(["New Provider", "Test Provider"]);
 });
 

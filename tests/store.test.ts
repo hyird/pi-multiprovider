@@ -162,10 +162,6 @@ describe("persistent account storage", () => {
     expect((await auth()).provider).toEqual(b);
     expect((await new AccountStore(dir).usageAccount("provider"))?.name).toBe("personal-alias");
   });
-  it("reports the current authentication kind without exposing credentials", async () => {
-    await login(oauth("alice", 1));
-    expect(await store.currentAuthKinds()).toEqual({ provider: "oauth", other: "api_key" });
-  });
   it("backs up an unsaved login before switching", async () => {
     await login(a);
     await store.save("provider", "work");
@@ -282,14 +278,6 @@ describe("persistent account storage", () => {
       Array.from({ length: 5 }, (_, i) => new AccountStore(dir).save("provider", `alias-${i}`)),
     );
     expect(await store.list("provider")).toHaveLength(5);
-  });
-  it("removes inactive records without logging out the active provider", async () => {
-    await login(a);
-    await store.save("provider", "work");
-    await expect(store.remove("provider", "work")).rejects.toThrow("Switch to another");
-    await login(b);
-    await store.remove("provider", "work");
-    expect((await auth()).provider).toEqual(b);
   });
   it("fails safely for missing accounts and missing persisted credentials", async () => {
     await expect(store.save("provider", "work")).rejects.toThrow("No stored");
