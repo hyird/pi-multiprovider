@@ -527,7 +527,7 @@ it("keeps reconciling after change and error notification callbacks throw", asyn
   expect((await store.list("test")).find((account) => account.active)?.name).toBe("default-3");
 });
 
-it("skips unchanged fallback passes but still runs a full reconciliation each minute", async () => {
+it("skips unchanged fallback passes and keeps minute reconciliation across wall-clock changes", async () => {
   vi.useFakeTimers();
   try {
     const reconcile = vi.spyOn(store, "reconcileCurrentAccounts");
@@ -536,6 +536,7 @@ it("skips unchanged fallback passes but still runs a full reconciliation each mi
     expect(reconcile).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(55_000);
     expect(reconcile).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(Date.now() - 3_600_000);
     await vi.advanceTimersByTimeAsync(5_000);
     await vi.waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
   } finally {

@@ -15,7 +15,7 @@ export function createAuthSync(
   onError: () => void,
   watchDirectory: WatchDirectory = (directory, listener) =>
     watch(directory, { persistent: false }, listener),
-  now: () => number = () => Date.now(),
+  now: () => number = () => performance.now(),
 ) {
   let watcher: FSWatcher | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
