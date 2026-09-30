@@ -1,6 +1,6 @@
 # pi-multiprovider
 
-Persistent multi-account switching for Pi 0.87.0. Automatic synchronization with native Pi login/logout and permanent account switching. All interface text is in English.
+Persistent multi-account switching for Pi 0.99.1. Automatic synchronization with native Pi login/logout and permanent account switching. All interface text is in English.
 
 ## Install
 
@@ -9,6 +9,8 @@ pi install git:github.com/hyird/pi-multiprovider
 ```
 
 Run `/reload` once after installing or updating. Switching accounts never requires a reload.
+
+For ChatGPT subscriptions, use native `/login openai` and choose **Sign in with ChatGPT**, as recommended by [Pi 0.99.1](https://github.com/earendil-works/pi/blob/v0.99.1/packages/coding-agent/docs/providers.md). API-key and OAuth accounts share the `openai` provider but remain distinct saved credentials. The legacy `openai-codex` provider remains supported; its tokens are not copied into `openai`, whose login grant and refresh metadata differ.
 
 ## Commands
 
@@ -27,7 +29,7 @@ Login uses Pi’s built-in `/login`. New accounts are saved automatically; no la
 You can specify a provider ID and a label directly:
 
 ```text
-/switch-account openai-codex work
+/switch-account openai work
 ```
 
 To remove a saved account, select it with `/switch-account`, then use native `/logout` for its provider. While running, the extension detects the removed current login and deletes matching saved aliases. Other accounts remain available. `/switch-account` only switches and renames accounts; it has no delete action.
@@ -42,7 +44,7 @@ The interaction is inspired by [pi-multiprovider](https://pi.dev/packages/pi-mul
 
 ## Native commands
 
-Pi 0.87 does not allow extensions to replace or hide its built-in `/login` and `/logout` commands. They remain available:
+The extension uses Pi's built-in `/login` and `/logout` commands:
 
 - Native `/login` replaces Pi's current credential. The extension automatically synchronizes it into the account pool: recognized accounts retain their labels and receive updated tokens; new or unrecognizable accounts get an unused `default`, `default-2`, etc. label. Rename them with `/switch-account`. New accounts produce one notification, and account/usage listeners refresh after synchronization.
 - Native `/logout` clears the current Pi login. While the extension is running, synchronization removes that account's saved records, including matching aliases, and preserves other accounts. Logouts while the extension is stopped are not cleaned up at startup.
@@ -83,3 +85,5 @@ bun run check
 Install a local checkout with `pi install /absolute/path/to/pi-multiprovider`. Tests use temporary directories and synthetic credentials, including a real Pi runtime authentication check. They do not authenticate real accounts or call provider services.
 
 Use kebab-case file names and keep tests in `tests/` as `<module>.test.ts`. Name cross-module tests `<feature>-integration.test.ts` and put executable test fixtures in `tests/fixtures/`. Keep regressions in the owning test suite; avoid separate files for a single check. Use Bun and commit only `bun.lock` for dependency resolution.
+
+Pi-provided modules are wildcard peer dependencies, with exact 0.99.1 development dependencies for checks, following [Pi's package contract](https://github.com/earendil-works/pi/blob/v0.99.1/packages/coding-agent/docs/packages.md#declare-dependencies). The extension uses the public model registry and isolated `createModels()` credential stores; it does not replace a provider's streaming implementation.

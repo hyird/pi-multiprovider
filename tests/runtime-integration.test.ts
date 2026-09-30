@@ -12,14 +12,17 @@ import {
 import extension from "../index.ts";
 import { AccountStore } from "../src/store.ts";
 
-it("switches authentication in the existing Pi runtime without reload", async () => {
+it.each(["api_key", "oauth"])("switches native OpenAI %s authentication in the existing Pi runtime without reload", async (authType) => {
   const dir = await mkdtemp(join(tmpdir(), "pi-accounts-runtime-"));
   const oldDir = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = dir;
   try {
     const path = join(dir, "auth.json");
     const login = (key: string) =>
-      writeFile(path, JSON.stringify({ openai: { type: "api_key", key } }));
+      writeFile(path, JSON.stringify({ openai: authType === "oauth" ? {
+        type: "oauth", access: key, refresh: `refresh-${key}`, expires: Date.now() + 3_600_000,
+        clientId: "fixture-client", scopes: ["chatgpt.tokens.use.direct"],
+      } : { type: "api_key", key } }));
     const store = new AccountStore(dir);
     await login("fixture-work");
     await seedAccount(store, "openai", "work");
@@ -59,6 +62,12 @@ it("switches authentication in the existing Pi runtime without reload", async ()
       ui: { notify },
     } as unknown as ExtensionCommandContext);
     expect(await registry.getApiKeyForProvider("openai")).toBe("fixture-work");
+    if (authType === "oauth") {
+      const { readFile } = await import("node:fs/promises");
+      expect(JSON.parse(await readFile(path, "utf8")).openai).toMatchObject({
+        clientId: "fixture-client", scopes: ["chatgpt.tokens.use.direct"],
+      });
+    }
     expect(reload).not.toHaveBeenCalled();
     expect(emit).toHaveBeenCalledWith("pi-accounts:changed", {
       provider: "openai",

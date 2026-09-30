@@ -108,7 +108,7 @@ it("does not attribute a runtime OpenCode Go key to a different saved account", 
     "Current account changed during authentication",
   );
 });
-it.each(["openai-codex", "xai"])(
+it.each(["openai", "openai-codex", "xai"])(
   "does not attribute a runtime OAuth token to a different %s account",
   async (provider) => {
     await writeFile(

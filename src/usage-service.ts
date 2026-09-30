@@ -142,7 +142,7 @@ export function createUsageService(store: AccountStore) {
     // runtime override must not be attributed to the saved login in auth.json.
     const directOAuth =
       current.authKind === "oauth" &&
-      (account.providerId === "openai-codex" || account.providerId === "xai");
+      (account.providerId === "openai" || account.providerId === "openai-codex" || account.providerId === "xai");
     const directApiKey =
       account.providerId === "opencode-go" &&
       current.authKind === "api_key" &&
