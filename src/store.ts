@@ -67,6 +67,7 @@ function tokenIdentity(value: unknown): { subject?: string; accountId?: string }
   return {};
 }
 export type OAuthIdentity = {
+  clientId?: string;
   explicitAccountId?: string;
   tokenAccountId?: string;
   subject?: string;
@@ -79,6 +80,7 @@ function oauthIdentity(value: Credential): OAuthIdentity | undefined {
       typeof value.accountId === "string" && value.accountId ? value.accountId : undefined,
     tokenAccountId: token.accountId,
     subject: token.subject,
+    clientId: typeof value.clientId === "string" ? value.clientId : undefined,
   };
 }
 export function conflictingOAuthIdentitySnapshots(a?: OAuthIdentity, b?: OAuthIdentity): boolean {
@@ -89,7 +91,8 @@ export function conflictingOAuthIdentitySnapshots(a?: OAuthIdentity, b?: OAuthId
     differs(a.tokenAccountId, b.tokenAccountId) ||
     (!b.explicitAccountId && differs(a.explicitAccountId, b.tokenAccountId)) ||
     (!a.explicitAccountId && differs(b.explicitAccountId, a.tokenAccountId)) ||
-    differs(a.subject, b.subject)
+    differs(a.subject, b.subject) ||
+    differs(a.clientId, b.clientId)
   );
 }
 function conflictingOAuthIdentity(
@@ -105,11 +108,13 @@ function conflictingOAuthIdentity(
       explicitAccountId: typeof a.accountId === "string" ? a.accountId : undefined,
       tokenAccountId: left.accountId,
       subject: left.subject,
+      clientId: typeof a.clientId === "string" ? a.clientId : undefined,
     },
     {
       explicitAccountId: typeof b.accountId === "string" ? b.accountId : undefined,
       tokenAccountId: right.accountId,
       subject: right.subject,
+      clientId: typeof b.clientId === "string" ? b.clientId : undefined,
     },
   );
 }
@@ -139,6 +144,9 @@ export function credentialRevision(value: object): string {
 export function sameAccount(a: Credential, b: Credential): boolean {
   if (a.type !== b.type) return false;
   if (a.type === "api_key") return a.key === b.key && sameEnv(a.env, b.env);
+  // Direct ChatGPT registrations belong to the issued client/workspace, not
+  // just the user or email. Never merge distinct registrations.
+  if ((a.clientId || b.clientId) && a.clientId !== b.clientId) return false;
   // Providers can add accountId after an initial login. A missing ID is not
   // evidence of a different account when refresh/access identity still matches.
   if (a.accountId && b.accountId && a.accountId !== b.accountId) return false;

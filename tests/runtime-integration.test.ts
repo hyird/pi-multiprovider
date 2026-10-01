@@ -49,6 +49,7 @@ it.each(["api_key", "oauth"])("switches native OpenAI %s authentication in the e
       if (name === "switch-account") handler = options.handler;
     };
     extension({
+      registerProvider: registry.registerProvider.bind(registry),
       registerCommand,
       on: vi.fn(),
       events: { emit, on: vi.fn() },
@@ -179,11 +180,13 @@ it("does not start account management in an OMP child", () => {
     on: register,
     events: { on: register, emit: register },
     registerCommand: register,
+    registerProvider: vi.fn(),
   } as unknown as ExtensionAPI;
   const interval = vi.spyOn(globalThis, "setInterval");
   try {
     vi.stubEnv("PI_OMP_CHILD", "1");
     extension(pi);
+    expect(pi.registerProvider).toHaveBeenCalledWith(expect.objectContaining({ id: "openai" }));
     expect(register).not.toHaveBeenCalled();
     expect(interval).not.toHaveBeenCalled();
   } finally {

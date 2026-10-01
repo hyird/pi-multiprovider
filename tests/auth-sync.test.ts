@@ -481,7 +481,8 @@ it("ignores unknown watcher noise unless account file metadata changed", async (
     await login({ test: key("new-login") });
     listener("change", null);
     await vi.waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
-    expect(changed).toHaveBeenCalledOnce();
+    // The spy records entry, before the async storage pass publishes its result.
+    await vi.waitFor(() => expect(changed).toHaveBeenCalledOnce());
   } finally {
     await sync?.stop();
     sync = undefined;

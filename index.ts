@@ -2,8 +2,11 @@ import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import { AccountError, AccountStore } from "./src/store.ts";
 import { runAccountCommand } from "./src/menu.ts";
 import { registerUsageService } from "./src/usage-service.ts";
+import { openAIWithIdentity } from "./src/openai-oauth.ts";
 
 export default function accounts(pi: ExtensionAPI) {
+  // Keep native direct OAuth behavior, but retain verified identity metadata.
+  pi.registerProvider(openAIWithIdentity());
   // OMP children use Pi's auth.json directly. Only the parent should watch and
   // reconcile the shared account pool or expose account-switching UI.
   if (process.env.PI_OMP_CHILD === "1") return;

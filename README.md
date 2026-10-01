@@ -20,11 +20,11 @@ For ChatGPT subscriptions, use native `/login openai` and choose **Sign in with 
 | `/logout` (native Pi) | Sign out; the extension removes the just-logged-out saved account |
 | `/switch-account` | Provider → saved account/API key → switch, notify, close |
 
-The switch menu displays the full account email when available. OAuth email claims are read locally; emails returned by usage/profile services are saved after a successful lookup by the updated pi-better-usage extension. Names wrap on narrow terminals. Accounts with matching emails remain separate, with their saved slot names shown alongside their status to distinguish them.
+The switch menu displays the full account email when available. Legacy Codex OAuth email claims are read locally. For native `/login openai` direct ChatGPT OAuth, the extension preserves Pi's public Responses provider and API-key auth, and supplies an identity-aware OAuth flow: it validates the returned ID token's signature, issuer, audience, expiry and login nonce, then retains its email and subject alongside the issued client ID. Refresh preserves this metadata, validates any new ID token and rejects a different subject. Different client registrations remain separate even for the same user/email. Existing direct credentials created before this update may have no email because Pi discarded their ID token; reconnect with `/login openai` after `/reload` to obtain it. No email is guessed from opaque access-token metadata or another account. Emails returned by usage/profile services are also saved after a successful lookup by the updated pi-better-usage extension. Names wrap on narrow terminals. Accounts with matching emails remain separate, with their saved slot names shown alongside their status to distinguish them.
 
 For accounts without an email, run `/switch-account`, choose a provider, highlight the account, and press **Ctrl+E** to configure its label. RPC clients use a separate **Edit label** choice in the native selection dialog. Email accounts do not offer label editing. This updates only the saved label; it does not switch accounts or modify Pi's current credentials. Esc cancels. Labels must be unique within a provider. Pressing Enter on an account still switches immediately.
 
-Login uses Pi’s built-in `/login`. New accounts are saved automatically; no label input is required.
+Login uses Pi’s built-in `/login` command. Native direct ChatGPT OAuth retains validated identity metadata; legacy `openai-codex` login is unchanged. New accounts are saved automatically; no label input is required.
 
 You can specify a provider ID and a label directly:
 
