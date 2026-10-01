@@ -1,6 +1,6 @@
 # pi-multiprovider
 
-Persistent multi-account switching for Pi 0.99.1. Automatic synchronization with native Pi login/logout and permanent account switching. All interface text is in English.
+Persistent multi-account switching for Pi 0.99.2. Automatic synchronization with native Pi login/logout and permanent account switching. All interface text is in English.
 
 ## Install
 
@@ -10,7 +10,7 @@ pi install git:github.com/hyird/pi-multiprovider
 
 Run `/reload` once after installing or updating. Switching accounts never requires a reload.
 
-For ChatGPT subscriptions, use native `/login openai` and choose **Sign in with ChatGPT**, as recommended by [Pi 0.99.1](https://github.com/earendil-works/pi/blob/v0.99.1/packages/coding-agent/docs/providers.md). API-key and OAuth accounts share the `openai` provider but remain distinct saved credentials. The legacy `openai-codex` provider remains supported; its tokens are not copied into `openai`, whose login grant and refresh metadata differ.
+For ChatGPT subscriptions, use native `/login openai` and choose **Sign in with ChatGPT**, as recommended by [Pi 0.99.2](https://github.com/earendil-works/pi/blob/v0.99.2/packages/coding-agent/docs/providers.md). API-key and OAuth accounts share the `openai` provider but remain distinct saved credentials. The legacy `openai-codex` provider remains supported; its tokens are not copied into `openai`, whose login grant and refresh metadata differ.
 
 ## Commands
 
@@ -86,4 +86,4 @@ Install a local checkout with `pi install /absolute/path/to/pi-multiprovider`. T
 
 Use kebab-case file names and keep tests in `tests/` as `<module>.test.ts`. Name cross-module tests `<feature>-integration.test.ts` and put executable test fixtures in `tests/fixtures/`. Keep regressions in the owning test suite; avoid separate files for a single check. Use Bun and commit only `bun.lock` for dependency resolution.
 
-Pi-provided modules are wildcard peer dependencies, with exact 0.99.1 development dependencies for checks, following [Pi's package contract](https://github.com/earendil-works/pi/blob/v0.99.1/packages/coding-agent/docs/packages.md#declare-dependencies). The extension uses the public model registry and isolated `createModels()` credential stores; it does not replace a provider's streaming implementation.
+Pi-provided modules are wildcard peer dependencies, with exact 0.99.2 development dependencies for checks, following [Pi's package contract](https://github.com/earendil-works/pi/blob/v0.99.2/packages/coding-agent/docs/packages.md#declare-dependencies). The extension uses the public model registry and isolated `createModels()` credential stores; it does not replace a provider's streaming implementation.
