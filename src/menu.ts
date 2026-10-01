@@ -57,7 +57,7 @@ export async function runAccountCommand(
   const ids = stored;
   if (!ids.length) throw new AccountError("No saved accounts. Use /login to sign in.");
   if (!ctx.hasUI && (!explicitProvider || !explicitLabel))
-    throw new AccountError("This command requires an interactive terminal.");
+    throw new AccountError("Choose a provider and account explicitly, or use an interactive Pi or RPC UI.");
   const choices = providerChoices(ctx, ids);
   const accountsByProvider = new Map<string, typeof menuAccounts>();
   for (const account of menuAccounts) {

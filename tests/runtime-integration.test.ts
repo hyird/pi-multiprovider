@@ -1,6 +1,5 @@
-import { seedAccount } from "./fixtures/accounts.ts";
 import { expect, it, vi } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -10,6 +9,7 @@ import {
   type ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 import extension from "../index.ts";
+import { runAccountCommand } from "../src/menu.ts";
 import { AccountStore } from "../src/store.ts";
 
 it.each(["api_key", "oauth"])("switches native OpenAI %s authentication in the existing Pi runtime without reload", async (authType) => {
@@ -25,9 +25,11 @@ it.each(["api_key", "oauth"])("switches native OpenAI %s authentication in the e
       } : { type: "api_key", key } }));
     const store = new AccountStore(dir);
     await login("fixture-work");
-    await seedAccount(store, "openai", "work");
+    await store.reconcileCurrentAccounts();
+    await store.rename("openai", "default", "work");
     await login("fixture-personal");
-    await seedAccount(store, "openai", "personal");
+    await store.reconcileCurrentAccounts();
+    await store.rename("openai", "default", "personal");
     const runtime = await ModelRuntime.create({
       authPath: path,
       modelsPath: null,
@@ -63,7 +65,6 @@ it.each(["api_key", "oauth"])("switches native OpenAI %s authentication in the e
     } as unknown as ExtensionCommandContext);
     expect(await registry.getApiKeyForProvider("openai")).toBe("fixture-work");
     if (authType === "oauth") {
-      const { readFile } = await import("node:fs/promises");
       expect(JSON.parse(await readFile(path, "utf8")).openai).toMatchObject({
         clientId: "fixture-client", scopes: ["chatgpt.tokens.use.direct"],
       });
@@ -105,6 +106,67 @@ it.each(["api_key", "oauth"])("switches native OpenAI %s authentication in the e
   } finally {
     if (oldDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
     else process.env.PI_CODING_AGENT_DIR = oldDir;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+it("native /login openai API-key credentials synchronize, switch through RPC and logout without touching legacy auth", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-native-openai-login-"));
+  const originalDir = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = dir;
+  try {
+    const authPath = join(dir, "auth.json");
+    const legacy = { type: "oauth", access: "fixture-legacy", refresh: "legacy-refresh", expires: Date.now() + 3_600_000 };
+    await writeFile(authPath, JSON.stringify({ "openai-codex": legacy }));
+    const runtime = await ModelRuntime.create({
+      authPath, modelsPath: null, modelsStorePath: join(dir, "models-store.json"),
+      allowModelNetwork: false, refreshOnCreate: false,
+    });
+    const store = new AccountStore(dir);
+    for (const name of ["work", "personal"]) {
+      await runtime.login("openai", "api_key", {
+        prompt: async (prompt) => {
+          expect(prompt.type).toBe("secret");
+          return `fixture-${name}`;
+        },
+        notify: vi.fn(),
+      });
+      await store.reconcileCurrentAccounts();
+      await store.rename("openai", "default", name);
+    }
+    expect(await store.list("openai")).toEqual([
+      { name: "work", active: false }, { name: "personal", active: true },
+    ]);
+    const registry = new ModelRegistry(runtime);
+    expect(await registry.getApiKeyForProvider("openai")).toBe("fixture-personal");
+    const emit = vi.fn();
+    const pi = { events: { emit } } as unknown as ExtensionAPI;
+    let selections = 0;
+    const custom = vi.fn();
+    const select = vi.fn(async (_title: string, options: string[]) => {
+      const selected = options.find((option) => selections === 0
+        ? option.endsWith(" · personal") : option.endsWith("work · Saved"));
+      selections++;
+      expect(selected).toBeDefined();
+      return selected;
+    });
+    const reload = vi.fn();
+    await runAccountCommand(pi, {
+      mode: "rpc", hasUI: true, isIdle: () => true, modelRegistry: registry, reload,
+      ui: { select, custom, notify: vi.fn() },
+    } as unknown as ExtensionCommandContext, store);
+    expect(select).toHaveBeenCalledTimes(2);
+    expect(custom).not.toHaveBeenCalled();
+    expect(reload).not.toHaveBeenCalled();
+    expect(await registry.getApiKeyForProvider("openai")).toBe("fixture-work");
+    expect(emit).toHaveBeenCalledWith("pi-accounts:changed", expect.objectContaining({ provider: "openai", name: "work" }));
+    await runtime.logout("openai");
+    await store.reconcileCurrentAccounts();
+    expect((await store.list("openai")).map((account) => account.name)).toEqual(["personal"]);
+    expect(JSON.parse(await readFile(authPath, "utf8"))["openai-codex"]).toEqual(legacy);
+  } finally {
+    if (originalDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = originalDir;
     await rm(dir, { recursive: true, force: true });
   }
 });

@@ -22,7 +22,7 @@ For ChatGPT subscriptions, use native `/login openai` and choose **Sign in with 
 
 The switch menu displays the full account email when available. OAuth email claims are read locally; emails returned by usage/profile services are saved after a successful lookup by the updated pi-better-usage extension. Names wrap on narrow terminals. Accounts with matching emails remain separate, with their saved slot names shown alongside their status to distinguish them.
 
-For accounts without an email, run `/switch-account`, choose a provider, highlight the account, and press **Ctrl+E** to configure its label. Email accounts do not offer label editing. This updates only the saved label; it does not switch accounts or modify Pi's current credentials. Esc cancels. Labels must be unique within a provider. Pressing Enter on an account still switches immediately.
+For accounts without an email, run `/switch-account`, choose a provider, highlight the account, and press **Ctrl+E** to configure its label. RPC clients use a separate **Edit label** choice in the native selection dialog. Email accounts do not offer label editing. This updates only the saved label; it does not switch accounts or modify Pi's current credentials. Esc cancels. Labels must be unique within a provider. Pressing Enter on an account still switches immediately.
 
 Login uses Pi’s built-in `/login`. New accounts are saved automatically; no label input is required.
 
@@ -38,7 +38,7 @@ Switching writes changed credentials to the global `auth.json`, refreshes Pi's e
 
 ## Interface
 
-Provider names come directly from Pi. The login/logout provider pickers and login dialog are native Pi components. Account and switch pickers use theme colors, borders, aligned status columns, contextual descriptions, and fuzzy search. Long lists have a bounded viewport with arrows, Page Up/Down, Home/End, and mouse-wheel navigation. Small terminals use a compact layout.
+Provider names come directly from Pi. The login/logout provider pickers and login dialog are native Pi components. In TUI mode, account and switch pickers use theme colors, borders, aligned status columns, contextual descriptions, and fuzzy search. Long lists have a bounded viewport with arrows, Page Up/Down, Home/End, and mouse-wheel navigation. Small terminals use a compact layout. RPC clients use Pi's public `ctx.ui.select()` and `ctx.ui.input()` dialogs, with numbered choices to distinguish identical account names. Headless commands require an explicit provider and account label.
 
 The interaction is inspired by [pi-multiprovider](https://pi.dev/packages/pi-multiprovider). This extension focuses on persistent manual selection.
 
@@ -86,4 +86,4 @@ Install a local checkout with `pi install /absolute/path/to/pi-multiprovider`. T
 
 Use kebab-case file names and keep tests in `tests/` as `<module>.test.ts`. Name cross-module tests `<feature>-integration.test.ts` and put executable test fixtures in `tests/fixtures/`. Keep regressions in the owning test suite; avoid separate files for a single check. Use Bun and commit only `bun.lock` for dependency resolution.
 
-Pi-provided modules are wildcard peer dependencies, with exact 0.99.2 development dependencies for checks, following [Pi's package contract](https://github.com/earendil-works/pi/blob/v0.99.2/packages/coding-agent/docs/packages.md#declare-dependencies). The extension uses the public model registry and isolated `createModels()` credential stores; it does not replace a provider's streaming implementation.
+Pi-provided modules are wildcard peer dependencies, with exact 0.99.2 development dependencies for checks, following [Pi's package contract](https://github.com/earendil-works/pi/blob/v0.99.2/packages/coding-agent/docs/packages.md#declare-dependencies). Following [Pi's extension lifecycle and UI contracts](https://github.com/earendil-works/pi/blob/v0.99.2/packages/coding-agent/docs/extensions.md), the factory only registers handlers; account watchers start at `session_start` and stop at `session_shutdown`, and terminal components require `ctx.mode === "tui"`. The extension uses the public model registry and isolated `createModels()` credential stores; it does not replace a provider's streaming implementation. Runtime integration tests cover native OpenAI API-key login/logout, automatic import of OAuth credentials including their refresh metadata, and RPC switching without session reload.

@@ -175,10 +175,22 @@ export async function selectMenu(
   const items = choices.map((item) =>
     typeof item === "string" ? { id: item, label: item } : item,
   );
-  return ctx.ui.custom<string | undefined>(
-    (tui, theme, _keys, done) =>
-      new AccountSelector(title, items, theme, () => tui.terminal.rows, done),
-  );
+  if (ctx.mode === "tui") {
+    return ctx.ui.custom<string | undefined>(
+      (tui, theme, _keys, done) =>
+        new AccountSelector(title, items, theme, () => tui.terminal.rows, done),
+    );
+  }
+  if (!ctx.hasUI || !items.length) return undefined;
+  // RPC forwards native dialogs, but cannot render terminal components or Ctrl+E.
+  const rows = items.flatMap((item) => [
+    { id: item.id, label: [item.label, item.value].filter(Boolean).join(" · ") },
+    ...(item.editId ? [{ id: item.editId, label: `Edit label: ${item.label}` }] : []),
+  ]);
+  const labels = rows.map((row, index) => `${index + 1}. ${row.label}`);
+  const selected = await ctx.ui.select(title, labels);
+  const index = selected === undefined ? -1 : labels.indexOf(selected);
+  return index < 0 ? undefined : rows[index]?.id;
 }
 
 export function providerChoices(ctx: ExtensionCommandContext, ids: string[]): Choice[] {
