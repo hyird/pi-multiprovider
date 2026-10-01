@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from "jose";
-import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
+import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { OAuthAuth, OAuthCredential } from "@earendil-works/pi-ai";
 import { validEmail } from "./account-identity.ts";
 
@@ -137,8 +137,11 @@ export function parseOpenAICallback(
 
 /** Native direct OAuth with validated ID-token metadata retained for account menus. */
 export function openAIWithIdentity(verify: VerifyIdentity = verifyOpenAIIdentity) {
-  const provider = openaiProvider();
-  const native = provider.auth.oauth!;
+  // Pi explicitly aliases providers/all for extensions. Individual provider
+  // subpaths otherwise match its pi-ai root alias and resolve under compat.js.
+  const provider = builtinProviders().find((candidate) => candidate.id === "openai");
+  if (!provider?.auth.oauth) throw new Error("Native OpenAI OAuth provider is unavailable");
+  const native = provider.auth.oauth;
   const oauth: OAuthAuth = {
     ...native,
     async login(interaction, options) {

@@ -5,12 +5,35 @@ import { join } from "node:path";
 import {
   ModelRuntime,
   ModelRegistry,
+  discoverAndLoadExtensions,
   type ExtensionAPI,
   type ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 import extension from "../index.ts";
 import { runAccountCommand } from "../src/menu.ts";
 import { AccountStore } from "../src/store.ts";
+import { fileURLToPath } from "node:url";
+
+it("loads through Pi's extension loader and registers native OpenAI OAuth", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-accounts-loader-"));
+  try {
+    // Direct Vitest imports bypass Pi's jiti aliases and cannot detect broken
+    // provider subpath imports. Load the real entrypoint through Pi instead.
+    const entry = fileURLToPath(new URL("../index.ts", import.meta.url));
+    const result = await discoverAndLoadExtensions([entry], dir, dir);
+    expect(result.errors).toEqual([]);
+    expect(result.extensions).toHaveLength(1);
+    expect(result.extensions[0]!.commands.has("switch-account")).toBe(true);
+    const provider = result.runtime.pendingNativeProviderRegistrations.find(
+      (registration) => registration.provider.id === "openai",
+    )?.provider;
+    expect(provider?.auth.oauth?.login).toBeTypeOf("function");
+    expect(provider?.auth.apiKey).toBeDefined();
+    expect(provider?.streamSimple).toBeTypeOf("function");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 
 it.each(["api_key", "oauth"])("switches native OpenAI %s authentication in the existing Pi runtime without reload", async (authType) => {
   const dir = await mkdtemp(join(tmpdir(), "pi-accounts-runtime-"));
